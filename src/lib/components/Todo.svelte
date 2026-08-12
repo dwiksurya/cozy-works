@@ -5,11 +5,13 @@
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
   import Icon from "./Icon.svelte";
+  import { dndzone } from "svelte-dnd-action";
 
   let view = "board"; // board | list | today | all | bytag
   let newTitle = "";
   let newTag = "";
   let newPriority = "medium";
+  let dragActive = false;
   let filterTag = "";
 
   const dbPath = "sqlite:cozy.db";
@@ -111,6 +113,23 @@
     return $todos.filter((td) => td.status === c);
   }
 
+  // ---- drag & drop (svelte-dnd-action) ----
+  function onDrop(e, targetCol) {
+    const info = e.detail;
+    const { items, from } = info;
+    // items = array of todo ids in new order
+    const moved = info.items.find((x) => x.id !== undefined);
+    const itemId = info.items[0]?.id;
+    if (!itemId) return;
+    // if moved to different column → update status
+    const todo = $todos.find((x) => x.id === itemId);
+    if (todo && todo.status !== targetCol) {
+      updateStatus(itemId, targetCol);
+    } else {
+      loadTodos();
+    }
+  }
+
   function isDueSoon(td) {
     if (!td.due_date) return false;
     const d = new Date(td.due_date);
@@ -150,10 +169,10 @@
   {#if view === "board"}
     <div class="kanban">
       {#each columns as c}
-        <div class="kanban-col">
+        <div class="kanban-col" class:dragover={dragActive}>
           <div class="col-head">{colTitle(c)} <span class="count">{colTodos(c).length}</span></div>
-          <div class="col-body">
-            {#each colTodos(c) as td}
+          <div class="col-body" use:dndzone={{ items: colTodos(c), type: "todo" }} onconsider={onDrop} onfinalize={onDrop}>
+            {#each colTodos(c) as td (td.id)}
               <div class="todo-card" class:due={isDueSoon(td)}>
                 <div class="card-top">
                   <span class="prio prio-{td.priority}">{$t.todo.priority[td.priority]}</span>

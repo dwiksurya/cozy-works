@@ -1,6 +1,6 @@
 <script>
   import "./app.css";
-  import { activeView, showAiSidebar, settings, settingsLoaded, sidebarCollapsed, workspaceStatus, agents, terminalTabs, toast } from "./lib/stores.js";
+  import { activeView, settings, settingsLoaded, sidebarCollapsed, workspaceStatus, agents, toast } from "./lib/stores.js";
   import { t, lang } from "./lib/i18n-store.js";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
@@ -14,14 +14,11 @@
   import Music from "./lib/components/Music.svelte";
   import Terminal from "./lib/components/Terminal.svelte";
   import Settings from "./lib/components/Settings.svelte";
-  import AiPanel from "./lib/components/AiPanel.svelte";
-  import Pet from "./lib/components/Pet.svelte";
-  import Avatar from "./lib/components/Avatar.svelte";
-  import AmbientDock from "./lib/components/AmbientDock.svelte";
   import Toast from "./lib/components/Toast.svelte";
   import Icon from "./lib/components/Icon.svelte";
 
   let appWindow = null;
+  let sidebarWidth = 220; // px, min = 220 (current), max = 320
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -40,6 +37,10 @@
       settings.update((s) => ({ ...s, ...obj }));
       if (obj.lang) lang.set(obj.lang);
       if (obj.sidebarCollapsed === "true") sidebarCollapsed.set(true);
+      if (obj.sidebarWidth) {
+        const w = parseInt(obj.sidebarWidth, 10);
+        if (w >= 220 && w <= 320) sidebarWidth = w;
+      }
     } catch (e) {
       console.warn("loadSettings", e);
     }
@@ -140,6 +141,28 @@
   function navClass(id) {
     return $activeView === id ? "nav-item active" : "nav-item";
   }
+
+  // ---- sidebar resize (220–320px) ----
+  function onResizeStart(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    function onMove(ev) {
+      const w = Math.min(320, Math.max(220, startW + (ev.clientX - startX)));
+      sidebarWidth = w;
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (isTauri()) {
+        Database.load("sqlite:cozy.db").then((db) => {
+          db.execute("INSERT INTO settings (key, value) VALUES ('sidebarWidth', $1) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(sidebarWidth)]);
+        });
+      }
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
 </script>
 
 <div class="app-shell">
@@ -156,9 +179,6 @@
       {/if}
       {#if $workspaceStatus.dir}
         <span class="tb-chip dir"><Icon name="terminal" size={11} /> {$workspaceStatus.dir}</span>
-      {/if}
-      {#if $workspaceStatus.aiRunning}
-        <span class="tb-chip ai"><Icon name="spark" size={11} /> AI…</span>
       {/if}
     </div>
 
@@ -179,7 +199,7 @@
   </div>
 
   <div class="app-body">
-    <aside class="sidebar" class:collapsed={$sidebarCollapsed}>
+    <aside class="sidebar" class:collapsed={$sidebarCollapsed} style={$sidebarCollapsed ? "" : `width: ${sidebarWidth}px`}>
       <button class="collapse-btn" onclick={() => sidebarCollapsed.set(!$sidebarCollapsed)} title="toggle sidebar">
         <Icon name={$sidebarCollapsed ? "arrow-right" : "arrow-left"} size={14} />
       </button>
@@ -247,19 +267,16 @@
       </div>
 
       <div class="sidebar-footer">
-        {#if !$sidebarCollapsed}
-          <div class="footer-row">
-            <Avatar size={36} />
-            <Pet size={40} showLabel={false} />
-          </div>
-        {/if}
-        <button class="nav-item" class:active={$showAiSidebar} onclick={() => showAiSidebar.set(!$showAiSidebar)} title={$sidebarCollapsed ? $t.nav.ai : ""}>
-          <span class="nav-icon"><Icon name="spark" size={17} /></span>
+        <button class="nav-item" onclick={() => activeView.set("settings")} title={$sidebarCollapsed ? $t.nav.settings : ""}>
+          <span class="nav-icon"><Icon name="settings" size={17} /></span>
           {#if !$sidebarCollapsed}
-            <span>{$t.nav.ai}</span>
+            <span>{$t.nav.settings}</span>
           {/if}
         </button>
       </div>
+      {#if !$sidebarCollapsed}
+        <div class="sidebar-resizer" onmousedown={onResizeStart} title="drag to resize"></div>
+      {/if}
     </aside>
 
     <main class="main-area">
@@ -280,19 +297,7 @@
       {:else if $activeView === "settings"}
         <Settings />
       {/if}
-
-      <div class="pet-corner">
-        <Pet size={64} />
-      </div>
-
-      <div class="ambient-dock">
-        <AmbientDock />
-      </div>
     </main>
-
-    {#if $showAiSidebar}
-      <AiPanel />
-    {/if}
   </div>
 
   <Toast />
@@ -443,6 +448,20 @@
     right: auto;
     left: 50%;
     transform: translateX(-50%);
+  }
+
+  .sidebar-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 30;
+  }
+  .sidebar-resizer:hover {
+    background: var(--primary);
+    opacity: 0.5;
   }
 
   .brand {
@@ -629,12 +648,6 @@
     padding-top: 10px;
     border-top: 2px dashed var(--border);
   }
-  .footer-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 10px;
-  }
   .sidebar.collapsed .sidebar-footer {
     display: flex;
     flex-direction: column;
@@ -651,18 +664,5 @@
     flex-direction: column;
     position: relative;
     min-width: 0;
-  }
-  .pet-corner {
-    position: absolute;
-    bottom: 12px;
-    left: 16px;
-    z-index: 40;
-    pointer-events: none;
-  }
-  .ambient-dock {
-    position: absolute;
-    bottom: 16px;
-    right: 16px;
-    z-index: 40;
   }
 </style>

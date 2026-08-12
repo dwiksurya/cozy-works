@@ -1,5 +1,5 @@
 <script>
-  import { pomodoro, settings, petState, avatarState, toast } from "../stores.js";
+  import { pomodoro, settings, toast } from "../stores.js";
   import { t } from "../i18n-store.js";
   import { fmtTime, todayStr } from "../i18n-store.js";
   import { onMount, onDestroy } from "svelte";
@@ -60,18 +60,10 @@
     else if ($pomodoro.phase === "short") dur = $s.shortBreak * 60;
     else dur = $s.longBreak * 60;
     pomodoro.update((p) => ({ ...p, running: true, remaining: dur, total: dur }));
-
-    // pet & avatar mood
-    if ($pomodoro.phase === "focus") {
-      petState.update((p) => ({ ...p, mood: "focus", animation: "idle" }));
-      avatarState.update((a) => ({ ...a, mood: "focus" }));
-    }
   }
 
   function pauseTimer() {
     pomodoro.update((p) => ({ ...p, running: false }));
-    petState.update((p) => ({ ...p, mood: "idle" }));
-    avatarState.update((a) => ({ ...a, mood: "idle" }));
   }
 
   function resetTimer() {
@@ -102,9 +94,6 @@
           recordSession($s.focusMinutes);
           if ($s.soundOn) playBeep();
           toast(get(t).notif.pomodoroDone, "info");
-          petState.update((pp) => ({ ...pp, mood: "happy", animation: "happy" }));
-          avatarState.update((a) => ({ ...a, mood: "happy" }));
-          setTimeout(() => petState.update((pp) => ({ ...pp, mood: "idle", animation: "idle" })), 3000);
           // decide break
           const sessionsToday = p.completedToday + 1;
           const phase = sessionsToday % $s.longEvery === 0 ? "long" : "short";
@@ -118,8 +107,6 @@
           if ($s.soundOn) playBeep();
           toast(get(t).notif.breakDone, "info");
           const dur = $s.focusMinutes * 60;
-          petState.update((pp) => ({ ...pp, mood: "focus", animation: "idle" }));
-          avatarState.update((a) => ({ ...a, mood: "focus" }));
           if ($s.autoStartFocus) {
             return { ...p, phase: "focus", remaining: dur, total: dur, running: true };
           }

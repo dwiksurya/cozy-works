@@ -50,7 +50,25 @@ fn shell_command() -> CommandBuilder {
     #[cfg(not(windows))]
     {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
-        CommandBuilder::new(&shell)
+        let shell_name = shell.rsplit('/').next().unwrap_or("bash");
+        let mut cb = CommandBuilder::new(&shell);
+        // login + interactive so user profile (~/.bashrc, ~/.zshrc, nvm, cargo)
+        // is loaded — otherwise PATH is incomplete and agents (claude, codex) not found
+        match shell_name {
+            "bash" => {
+                cb.arg("-il");
+            }
+            "zsh" => {
+                cb.arg("-il");
+            }
+            "fish" => {
+                cb.arg("-il");
+            }
+            _ => {
+                cb.arg("-il");
+            }
+        }
+        cb
     }
 }
 

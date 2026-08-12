@@ -20,6 +20,7 @@
     "@xterm/addon-web-links": "^0.11.0",
     "marked": "^15.0.0",
     "pixelarticons": "^2.2.0",
+    "svelte-dnd-action": "^0.9.78",
     "xterm": "^5.3.0"
   },
   "devDependencies": {

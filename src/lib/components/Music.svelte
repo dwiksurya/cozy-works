@@ -35,8 +35,8 @@
       const files = await invoke("scan_music", { dir });
       const lib = files.map((f, i) => ({
         id: i,
-        path: f,
-        name: f.split("/").pop().split("\\").pop().replace(/\.(mp3|flac|wav|ogg|m4a)$/i, ""),
+        path: f.path,
+        name: f.name || f.path.split("/").pop().split("\\").pop().replace(/\.(mp3|flac|wav|ogg|m4a)$/i, ""),
       }));
       musicState.update((m) => ({ ...m, library: lib, queue: lib }));
     } catch (e) {

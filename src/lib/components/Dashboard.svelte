@@ -1,11 +1,9 @@
 <script>
-  import { pomodoro, todos, memos, petState, avatarState, activeView } from "../stores.js";
+  import { pomodoro, todos, memos, activeView } from "../stores.js";
   import { t, lang } from "../i18n-store.js";
   import { fmtTime, todayStr } from "../i18n-store.js";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
-  import Pet from "./Pet.svelte";
-  import Avatar from "./Avatar.svelte";
 
   let stats = { sessions: 0, minutes: 0 };
 
@@ -48,10 +46,6 @@
       <button class="pixel-btn primary hero-btn" onclick={() => activeView.set("pomodoro")}>
         {$t.dashboard.startFocus} ▶
       </button>
-    </div>
-    <div class="hero-right">
-      <Avatar size={84} />
-      <Pet size={96} />
     </div>
   </div>
 

@@ -17,6 +17,7 @@
   let containerRefs = {}; // id -> DOM element
   let unlisten = [];
   let statusTimer;
+  let loading = true; // shell spawning indicator
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -43,7 +44,9 @@
   async function newTab() {
     if (!isTauri()) return;
     try {
+      loading = true;
       const info = await invoke("spawn_terminal");
+      loading = false;
       const id = info.id;
       const tab = {
         id,
@@ -275,6 +278,12 @@
   </div>
 
   <div class="term-container">
+    {#if loading}
+      <div class="term-loading">
+        <span class="pixel-spinner"></span>
+        <span>Starting shell…</span>
+      </div>
+    {/if}
     {#each tabs as tab}
       <div class="term-pane" use:containerAction={tab.id}></div>
     {/each}
@@ -364,6 +373,32 @@
     flex: 1;
     position: relative;
     overflow: hidden;
+  }
+  .term-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: var(--font-body);
+    font-size: 16px;
+    color: var(--text-dim);
+    background: var(--surface);
+    z-index: 10;
+  }
+  .pixel-spinner {
+    width: 16px;
+    height: 16px;
+    border: 3px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   .term-pane {
     position: absolute;

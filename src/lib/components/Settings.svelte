@@ -8,19 +8,6 @@
   import Icon from "./Icon.svelte";
 
   let saved = false;
-  let aiKey = "";
-
-  const MODELS = [
-    { id: "ds/deepseek-v4-flash", label: "DeepSeek V4 Flash (fast)" },
-    { id: "ds/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-    { id: "ds/deepseek-reasoner", label: "DeepSeek Reasoner" },
-    { id: "cmc/deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash (cmc)" },
-    { id: "cmc/deepseek/deepseek-v4-pro", label: "DeepSeek V4 Pro (cmc)" },
-    { id: "ag/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-    { id: "ag/claude-opus-4-6-thinking", label: "Claude Opus 4.6" },
-    { id: "ag/gemini-3.5-flash", label: "Gemini 3.5 Flash" },
-    { id: "cmc/Qwen/Qwen3.6-Plus", label: "Qwen 3.6 Plus" },
-  ];
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -37,22 +24,15 @@
   }
 
   async function save() {
-    if (aiKey.trim()) {
-      settings.update((s) => ({ ...s, aiApiKey: aiKey.trim() }));
-    }
     try {
       if (isTauri()) {
         const db = await Database.load("sqlite:cozy.db");
         const $s = get(settings);
         for (const [k, v] of Object.entries($s)) {
-          if (k === "aiApiKey") continue;
           await db.execute(
             "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             [k, typeof v === "object" ? JSON.stringify(v) : String(v)]
           );
-        }
-        if (aiKey.trim()) {
-          await db.execute("INSERT INTO settings (key, value) VALUES ('aiApiKey', $1) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [aiKey.trim()]);
         }
       }
       saved = true;
@@ -112,57 +92,6 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3><Icon name="spark" size={14} /> AI {$t.settings.ai}</h3>
-      <div class="set-row">
-        <label>{$t.settings.aiModel}</label>
-        <select bind:value={$settings.aiModel}>
-          {#each MODELS as m}
-            <option value={m.id}>{m.label}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="set-row">
-        <label>{$t.settings.aiBaseUrl}</label>
-        <input type="text" bind:value={$settings.aiBaseUrl} />
-      </div>
-      <div class="set-row">
-        <label>API Key</label>
-        <input type="password" bind:value={aiKey} placeholder="•••••••• (leave empty to keep)" />
-      </div>
-      <div class="set-row">
-        <label>{$t.settings.aiNotifyDone}</label>
-        <input type="checkbox" bind:checked={$settings.aiNotifyOnDone} />
-      </div>
-      <div class="set-row">
-        <label>{$t.settings.aiNotifyAsk}</label>
-        <input type="checkbox" bind:checked={$settings.aiNotifyOnAsk} />
-      </div>
-      <p class="hint">{$t.ai.apiKeyHint}</p>
-    </section>
-
-    <section class="set-card pixel-panel">
-      <h3><Icon name="paw" size={14} /> {$t.settings.pet}</h3>
-      <div class="set-row">
-        <label>{$t.settings.choosePet}</label>
-        <select bind:value={$settings.pet}>
-          <option value="cat">{$t.pet.cat}</option>
-          <option value="rabbit">{$t.pet.rabbit}</option>
-          <option value="fox">{$t.pet.fox}</option>
-          <option value="dog">{$t.pet.dog}</option>
-          <option value="tanuki">{$t.pet.tanuki}</option>
-        </select>
-      </div>
-      <div class="set-row">
-        <label>{$t.settings.avatarHair}</label>
-        <input type="color" bind:value={$settings.avatarHair} />
-      </div>
-      <div class="set-row">
-        <label>{$t.settings.avatarSkin}</label>
-        <input type="color" bind:value={$settings.avatarSkin} />
-      </div>
-    </section>
-
-    <section class="set-card pixel-panel">
       <h3><Icon name="music" size={14} /> {$t.settings.music}</h3>
       <div class="set-row">
         <label for="musicDir">{$t.settings.musicDir}</label>
@@ -170,21 +99,6 @@
           <input id="musicDir" type="text" bind:value={$settings.musicDir} placeholder="~/Music" />
           <button class="pixel-btn" onclick={pickFolder}>{$t.settings.chooseFolder}</button>
         </div>
-      </div>
-    </section>
-
-    <section class="set-card pixel-panel">
-      <h3><Icon name="cloud" size={14} /> {$t.settings.ambient}</h3>
-      <div class="set-row">
-        <label for="ambientMode">{$t.settings.ambientMode}</label>
-        <select id="ambientMode" bind:value={$settings.ambientMode}>
-          <option value="auto">{$t.ambient.auto}</option>
-          <option value="manual">{$t.ambient.manual}</option>
-        </select>
-      </div>
-      <div class="set-row">
-        <label for="ambientVol">{$t.ambient.volume}</label>
-        <input id="ambientVol" type="range" min="0" max="1" step="0.05" bind:value={$settings.ambientVolume} />
       </div>
     </section>
   </div>
