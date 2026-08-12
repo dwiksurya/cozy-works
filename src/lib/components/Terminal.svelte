@@ -93,10 +93,11 @@
   function activateTab(id) {
     activeTabId = id;
     syncTabs();
-    // refit
+    // refit + focus
     setTimeout(() => {
       const tab = tabs.find((x) => x.id === id);
       tab?.fit?.fit();
+      tab?.term?.focus();
     }, 30);
   }
 
@@ -130,10 +131,17 @@
           tab.pending = false;
           term.write("");
         }
+        // focus terminal so keyboard input works
+        if (tab.id === activeTabId) {
+          setTimeout(() => term.focus(), 30);
+        }
       }
       if (el) el.style.display = tab.id === activeTabId ? "block" : "none";
       if (tab.id === activeTabId) {
-        setTimeout(() => tab.fit?.fit(), 50);
+        setTimeout(() => {
+          tab.fit?.fit();
+          tab.term?.focus();
+        }, 50);
       }
     }
   }
@@ -204,6 +212,8 @@
           tab.term.write(data);
           if (id === activeTabId) parseOutput(tab, data);
         }
+        // shell is ready — hide loading
+        if (loading) loading = false;
       })
     );
     unlisten.push(
@@ -226,6 +236,7 @@
       const id = "browser";
       tabs = [{ id, label: "demo", term: null, fit: null, pending: false, container: null }];
       activeTabId = id;
+      loading = false; // browser demo is ready immediately
       syncTabs();
       setTimeout(() => {
         const tab = tabs[0];
@@ -386,6 +397,7 @@
     color: var(--text-dim);
     background: var(--surface);
     z-index: 10;
+    pointer-events: none;
   }
   .pixel-spinner {
     width: 16px;
