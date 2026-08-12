@@ -144,18 +144,28 @@ pub struct GitStatus {
 
 #[tauri::command]
 pub fn git_branch(cwd: String) -> Result<GitStatus, String> {
-    let path = PathBuf::from(&cwd);
+    // Resolve ~ to home dir
+    let resolved = if cwd == "~" || cwd.is_empty() {
+        std::env::var("HOME").unwrap_or_else(|_| ".".into())
+    } else if let Some(rest) = cwd.strip_prefix("~/") {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        format!("{home}/{rest}")
+    } else {
+        cwd.clone()
+    };
+
+    let path = PathBuf::from(&resolved);
     let dir_display = path.display().to_string();
 
     let output = std::process::Command::new("git")
-        .args(["-C", &cwd, "rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["-C", &resolved, "rev-parse", "--abbrev-ref", "HEAD"])
         .output();
 
     match output {
         Ok(out) if out.status.success() => {
             let branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
             let dirty = std::process::Command::new("git")
-                .args(["-C", &cwd, "status", "--porcelain"])
+                .args(["-C", &resolved, "status", "--porcelain"])
                 .output()
                 .map(|o| !o.stdout.is_empty())
                 .unwrap_or(false);
