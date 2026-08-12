@@ -4,6 +4,7 @@
   import { get } from "svelte/store";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
+  import Icon from "./Icon.svelte";
 
   let view = "board"; // board | list | today | all | bytag
   let newTitle = "";
@@ -160,7 +161,7 @@
                 </div>
                 <div class="card-title">{td.title}</div>
                 {#if td.due_date}
-                  <div class="card-due">📅 {td.due_date}</div>
+                  <div class="card-due"><Icon name="calendar" size={12} /> {td.due_date}</div>
                 {/if}
                 {#if td.items && td.items.length}
                   <div class="subtasks">

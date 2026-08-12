@@ -3,6 +3,7 @@
   import { t } from "../i18n-store.js";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
+  import Icon from "./Icon.svelte";
 
   let memoText = "";
 
@@ -55,7 +56,7 @@
     {#each $memos as m}
       <div class="memo-card pixel-panel">
         <p>{m.content}</p>
-        <button class="mini danger" onclick={() => deleteMemo(m.id)}>{$t.memo.delete}</button>
+        <button class="mini danger" onclick={() => deleteMemo(m.id)}><Icon name="trash" size={13} /></button>
       </div>
     {:else}
       <div class="empty">—</div>

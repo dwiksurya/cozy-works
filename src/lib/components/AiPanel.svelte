@@ -5,6 +5,7 @@
   import { t } from "../i18n-store.js";
   import { get } from "svelte/store";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
+  import Icon from "./Icon.svelte";
 
   let input = "";
   let messages = [];
@@ -230,8 +231,8 @@
           <option value={m.id}>{m.label}</option>
         {/each}
       </select>
-      <button class="mini" onclick={clearChat} title={$t.ai.clear}>🗑</button>
-      <button class="mini" onclick={() => showAiSidebar.set(false)}>✕</button>
+      <button class="mini" onclick={clearChat} title={$t.ai.clear}><Icon name="trash" size={13} /></button>
+      <button class="mini" onclick={() => showAiSidebar.set(false)}><Icon name="close" size={13} /></button>
     </div>
   </div>
 
@@ -383,9 +384,9 @@
   }
   .code-block {
     margin-top: 8px;
-    background: #0e1119;
-    border: 1px solid var(--border);
-    border-radius: 6px;
+    background: var(--surface);
+    border: 2px solid var(--border);
+    border-radius: 4px;
     overflow: hidden;
   }
   .code-head {
@@ -393,19 +394,21 @@
     justify-content: space-between;
     align-items: center;
     padding: 3px 8px;
-    background: var(--bg);
-    font-size: 10.5px;
+    background: var(--surface-dim);
+    font-size: 12px;
     color: var(--text-faint);
+    font-family: var(--font-menu);
   }
   .code-head .insert {
-    font-size: 10px;
-    color: var(--accent);
+    font-size: 11px;
+    color: var(--checklist-green);
   }
   .code-block pre {
     padding: 8px;
     overflow-x: auto;
-    font-size: 11.5px;
-    font-family: var(--font-mono);
+    font-size: 14px;
+    font-family: var(--font-body);
+    color: var(--text);
     user-select: text;
   }
   .confirm-bar {

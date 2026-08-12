@@ -4,6 +4,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+  import Icon from "./Icon.svelte";
 
   let audio = null;
   let elCurrent = null;
@@ -121,7 +122,7 @@
   <h2>{$t.music.title}</h2>
 
   <div class="music-toolbar">
-    <button class="pixel-btn" onclick={pickFolder}>📂 {$t.music.addFolder}</button>
+    <button class="pixel-btn" onclick={pickFolder}><Icon name="music" size={15} /> {$t.music.addFolder}</button>
     {#if $settings.musicDir}
       <span class="dir-label">{$settings.musicDir}</span>
     {/if}
@@ -132,17 +133,23 @@
   {:else}
     <div class="player pixel-panel">
       <div class="now-playing">
-        <div class="np-art">♪</div>
+        <div class="np-art"><Icon name="music" size={28} /></div>
         <div class="np-info">
           <div class="np-title">{$musicState.current?.name || "—"}</div>
           <div class="np-meta">{$t.music.nowPlaying}</div>
         </div>
         <div class="np-controls">
-          <button class="ctrl" onclick={prev} title="prev">⏮</button>
-          <button class="ctrl play" onclick={togglePlay}>{$musicState.playing ? "⏸" : "▶"}</button>
-          <button class="ctrl" onclick={next} title="next">⏭</button>
-          <button class="ctrl" class:active={$musicState.shuffle} onclick={toggleShuffle} title={$t.music.shuffle}>🔀</button>
-          <button class="ctrl" class:active={$musicState.repeat} onclick={toggleRepeat} title={$t.music.repeat}>🔁</button>
+          <button class="ctrl" onclick={prev} title="prev"><Icon name="skip-back" size={16} /></button>
+          <button class="ctrl play" onclick={togglePlay}>
+            {#if $musicState.playing}
+              <Icon name="pause" size={16} />
+            {:else}
+              <Icon name="play" size={16} />
+            {/if}
+          </button>
+          <button class="ctrl" onclick={next} title="next"><Icon name="skip-forward" size={16} /></button>
+          <button class="ctrl" class:active={$musicState.shuffle} onclick={toggleShuffle} title={$t.music.shuffle}><Icon name="shuffle" size={16} /></button>
+          <button class="ctrl" class:active={$musicState.repeat} onclick={toggleRepeat} title={$t.music.repeat}><Icon name="repeat" size={16} /></button>
         </div>
         <div class="np-volume">
           <input type="range" min="0" max="1" step="0.05" value={$musicState.volume} oninput={(e) => setVolume(parseFloat(e.target.value))} />
@@ -193,13 +200,14 @@
     width: 52px;
     height: 52px;
     border-radius: 8px;
-    background: linear-gradient(135deg, var(--accent-dim), var(--blue));
+    background: linear-gradient(135deg, var(--music-purple), var(--blue));
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    color: #0c1510;
+    color: #fff;
     flex-shrink: 0;
+    border: 2px solid var(--text);
   }
   .np-info {
     flex: 1;

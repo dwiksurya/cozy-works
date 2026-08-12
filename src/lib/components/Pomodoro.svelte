@@ -256,10 +256,11 @@
     transition: stroke-dashoffset 0.3s linear;
   }
   .timer-text {
-    font-size: 38px;
-    font-weight: 700;
+    font-size: 42px;
+    font-weight: 400;
     font-variant-numeric: tabular-nums;
-    font-family: var(--font-mono);
+    font-family: var(--font-timer);
+    color: var(--pomodoro-red);
   }
   .controls {
     display: flex;
@@ -285,9 +286,9 @@
   }
   .stat-num {
     font-size: 30px;
-    font-weight: 700;
-    color: var(--accent);
-    font-family: var(--font-mono);
+    font-weight: 400;
+    color: var(--pomodoro-red);
+    font-family: var(--font-timer);
   }
   .stat-label {
     font-size: 11px;

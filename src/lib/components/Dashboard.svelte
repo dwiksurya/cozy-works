@@ -138,9 +138,9 @@
   }
   .hs-num {
     font-size: 24px;
-    font-weight: 700;
-    color: var(--accent);
-    font-family: var(--font-mono);
+    font-weight: 400;
+    color: var(--checklist-green);
+    font-family: var(--font-timer);
   }
   .hs-label {
     font-size: 11px;
@@ -225,13 +225,13 @@
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: var(--bg-panel);
+    background: var(--surface-container-low);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
-    font-weight: 700;
-    font-family: var(--font-mono);
+    font-size: 14px;
+    font-weight: 400;
+    font-family: var(--font-timer);
   }
   .mini-focus p {
     color: var(--text-dim);

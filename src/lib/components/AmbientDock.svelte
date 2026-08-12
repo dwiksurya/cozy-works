@@ -2,15 +2,24 @@
   import { ambient, effectiveAmbientScene, settings } from "../stores.js";
   import { t } from "../i18n-store.js";
   import { initAmbient, startAmbient, stopAmbient } from "../ambient.js";
+  import Icon from "./Icon.svelte";
 
   const scenes = ["morning", "afternoon", "evening", "night", "rain", "city"];
   const icons = {
-    morning: "🌅",
-    afternoon: "☀️",
-    evening: "🌇",
-    night: "🌙",
-    rain: "🌧️",
-    city: "🌃",
+    morning: "sun",
+    afternoon: "sun",
+    evening: "sun-cloud",
+    night: "moon",
+    rain: "cloud-rain",
+    city: "city",
+  };
+  const sceneColors = {
+    morning: "#e8b93c",
+    afternoon: "#f9a825",
+    evening: "#e0602a",
+    night: "#4a6fa5",
+    rain: "#5b7db1",
+    city: "#7b1fa2",
   };
 
   function togglePlay() {
@@ -55,7 +64,7 @@
         onclick={() => setScene(s)}
         title={$t.ambient[s]}
       >
-        <span class="scene-icon">{icons[s]}</span>
+        <span class="scene-icon" style="color: {sceneColors[s]}"><Icon name={icons[s]} size={20} /></span>
         <span class="scene-name">{$t.ambient[s]}</span>
       </button>
     {/each}

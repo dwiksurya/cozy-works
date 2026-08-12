@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
   import { open as dialogOpen } from "@tauri-apps/plugin-dialog";
+  import Icon from "./Icon.svelte";
 
   let saved = false;
   let aiKey = "";
@@ -68,7 +69,7 @@
 
   <div class="settings-grid">
     <section class="set-card pixel-panel">
-      <h3>🌐 {$t.settings.language}</h3>
+      <h3><Icon name="user" size={14} /> {$t.settings.language}</h3>
       <div class="set-row">
         <label>{$t.settings.language}</label>
         <select bind:value={$settings.lang} onchange={(e) => lang.set(e.target.value)}>
@@ -79,7 +80,7 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3>🍅 {$t.settings.pomodoro}</h3>
+      <h3><Icon name="clock" size={14} /> {$t.settings.pomodoro}</h3>
       <div class="set-row">
         <label>{$t.settings.focusMin}</label>
         <input type="number" min="1" max="120" bind:value={$settings.focusMinutes} />
@@ -111,7 +112,7 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3>✨ AI {$t.settings.ai}</h3>
+      <h3><Icon name="spark" size={14} /> AI {$t.settings.ai}</h3>
       <div class="set-row">
         <label>{$t.settings.aiModel}</label>
         <select bind:value={$settings.aiModel}>
@@ -140,7 +141,7 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3>🐾 {$t.settings.pet}</h3>
+      <h3><Icon name="paw" size={14} /> {$t.settings.pet}</h3>
       <div class="set-row">
         <label>{$t.settings.choosePet}</label>
         <select bind:value={$settings.pet}>
@@ -162,7 +163,7 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3>🎵 {$t.settings.music}</h3>
+      <h3><Icon name="music" size={14} /> {$t.settings.music}</h3>
       <div class="set-row">
         <label for="musicDir">{$t.settings.musicDir}</label>
         <div class="row-inline">
@@ -173,7 +174,7 @@
     </section>
 
     <section class="set-card pixel-panel">
-      <h3>🌧 {$t.settings.ambient}</h3>
+      <h3><Icon name="cloud" size={14} /> {$t.settings.ambient}</h3>
       <div class="set-row">
         <label for="ambientMode">{$t.settings.ambientMode}</label>
         <select id="ambientMode" bind:value={$settings.ambientMode}>

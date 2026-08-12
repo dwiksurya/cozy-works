@@ -18,6 +18,7 @@
   import Avatar from "./lib/components/Avatar.svelte";
   import AmbientDock from "./lib/components/AmbientDock.svelte";
   import Toast from "./lib/components/Toast.svelte";
+  import Icon from "./lib/components/Icon.svelte";
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -51,14 +52,14 @@
   });
 
   const navItems = [
-    { id: "dashboard", icon: "▦", key: "nav.dashboard" },
-    { id: "pomodoro", icon: "◉", key: "nav.pomodoro" },
-    { id: "todo", icon: "☑", key: "nav.todo" },
-    { id: "notes", icon: "✎", key: "nav.notes" },
-    { id: "memo", icon: "✧", key: "nav.memo" },
-    { id: "music", icon: "♪", key: "nav.music" },
-    { id: "terminal", icon: "▮", key: "nav.terminal" },
-    { id: "settings", icon: "⚙", key: "nav.settings" },
+    { id: "dashboard", icon: "home", key: "nav.dashboard" },
+    { id: "pomodoro", icon: "clock", key: "nav.pomodoro" },
+    { id: "todo", icon: "check-double", key: "nav.todo" },
+    { id: "notes", icon: "doc", key: "nav.notes" },
+    { id: "memo", icon: "note", key: "nav.memo" },
+    { id: "music", icon: "music", key: "nav.music" },
+    { id: "terminal", icon: "terminal", key: "nav.terminal" },
+    { id: "settings", icon: "settings", key: "nav.settings" },
   ];
 
   function label(key) {
@@ -77,7 +78,7 @@
     </div>
     {#each navItems as item}
       <button class="nav-item" class:active={$activeView === item.id} onclick={() => (activeView.set(item.id))}>
-        <span class="nav-icon">{item.icon}</span>
+        <span class="nav-icon"><Icon name={item.icon} size={17} /></span>
         <span>{label(item.key)}</span>
       </button>
     {/each}
@@ -88,7 +89,7 @@
         <Pet size={40} showLabel={false} />
       </div>
       <button class="nav-item" class:active={$showAiSidebar} onclick={() => showAiSidebar.set(!$showAiSidebar)}>
-        <span class="nav-icon">✦</span>
+        <span class="nav-icon"><Icon name="spark" size={17} /></span>
         <span>{$t.nav.ai}</span>
       </button>
     </div>

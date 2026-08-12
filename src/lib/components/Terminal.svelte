@@ -203,22 +203,23 @@
     align-items: center;
     gap: 8px;
     padding: 5px 10px;
-    background: var(--bg-panel);
-    border-bottom: 1px solid var(--border-soft);
-    font-size: 11.5px;
+    background: var(--surface-container-low);
+    border-bottom: 2px solid var(--text);
+    font-size: 14px;
     color: var(--text-dim);
-    font-family: var(--font-mono);
+    font-family: var(--font-body);
   }
   .st-item {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    background: var(--bg-elev);
-    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
   }
   .st-item.branch {
-    color: var(--accent);
+    color: var(--checklist-green);
   }
   .branch-icon {
     font-size: 12px;

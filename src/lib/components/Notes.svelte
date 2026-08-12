@@ -5,6 +5,7 @@
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
   import { marked } from "marked";
+  import Icon from "./Icon.svelte";
 
   let search = "";
   let editing = null;
@@ -133,8 +134,8 @@
     <h2>{$t.notes.title}</h2>
     <div class="notes-actions">
       <input bind:value={search} placeholder={$t.notes.search} class="search" />
-      <button class="pixel-btn" class:active={showPinnedOnly} onclick={() => (showPinnedOnly = !showPinnedOnly)}>📌</button>
-      <button class="pixel-btn" class:active={showArchived} onclick={() => (showArchived = !showArchived)}>🗄</button>
+      <button class="pixel-btn" class:active={showPinnedOnly} onclick={() => (showPinnedOnly = !showPinnedOnly)}><Icon name="pin" size={14} /></button>
+      <button class="pixel-btn" class:active={showArchived} onclick={() => (showArchived = !showArchived)}><Icon name="doc" size={14} /></button>
       <button class="pixel-btn primary" onclick={newNote}>{$t.notes.newNote}</button>
     </div>
   </div>
@@ -144,7 +145,7 @@
       <div class="editor-row">
         <input bind:value={editTitle} placeholder="Title" class="title-input" />
         <input bind:value={editTags} placeholder="tags, comma, separated" class="tags-input" />
-        <button class="pixel-btn primary" onclick={saveNote}>💾</button>
+        <button class="pixel-btn primary" onclick={saveNote}><Icon name="check" size={14} /></button>
         <button class="pixel-btn" onclick={() => (editing = null)}>✕</button>
       </div>
       <div class="editor-split">
@@ -173,9 +174,9 @@
           </div>
         {/if}
         <div class="note-actions" onclick={(e) => e.stopPropagation()}>
-          <button class="mini" onclick={() => togglePin(n)}>{n.pinned ? "📌" : "📍"}</button>
-          <button class="mini" onclick={() => toggleArchive(n)}>🗄</button>
-          <button class="mini danger" onclick={() => deleteNote(n)}>🗑</button>
+          <button class="mini" onclick={() => togglePin(n)}><Icon name={n.pinned ? "pin" : "star"} size={13} /></button>
+          <button class="mini" onclick={() => toggleArchive(n)}><Icon name="doc" size={13} /></button>
+          <button class="mini danger" onclick={() => deleteNote(n)}><Icon name="trash" size={13} /></button>
         </div>
       </div>
     {:else}

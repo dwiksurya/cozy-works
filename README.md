@@ -20,6 +20,14 @@ A cozy pixel-zen workspace desktop app built with **Tauri 2** + **Svelte 5**.
 | ♪ Music | Local folder scan (mp3/flac/wav/ogg/m4a), play/pause/next/prev, shuffle, repeat, volume |
 | ⚙ Settings | All preferences + language EN/ID |
 
+## Design System — Pixel Hearth
+
+Light cream retro-pixel theme inspired by cozy hearth aesthetics.
+
+- **Palette**: warm cream surfaces (`#fff9e7`), sun-yellow primary (`#f9d466`), functional colors — pomodoro red `#d32f2f`, doc brown `#5c4033`, checklist green `#388e3c`, memo yellow `#fbc02d`, music purple `#7b1fa2`.
+- **Fonts** (self-hosted, offline): Pixelify Sans (logo/heading/button), VT323 (body), Tiny5 (timer), Press Start 2P (retro logo), Silkscreen (UI/menu).
+- **Icons**: [Pixelarticons](https://pixelarticons.com/) inline SVG (stroke-based, currentColor).
+
 ## Tech Stack
 
 - **Tauri 2** (Rust backend, WebKit/WebView2 frontend container)
