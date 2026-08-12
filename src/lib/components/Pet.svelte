@@ -323,6 +323,7 @@
     ctx.imageSmoothingEnabled = false;
 
     const sprite = currentSprite();
+    const anim = $petState.animation || "idle";
     const offset = Math.sin(frame / 12) * (frame % 24 < 12 ? 0.5 : -0.5);
 
     for (let y = 0; y < 16; y++) {
