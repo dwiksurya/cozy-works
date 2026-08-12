@@ -1,0 +1,25 @@
+# Frontend
+node_modules/
+dist/
+cozy-works-ui/
+
+# Rust
+src-tauri/target/
+src-tauri/gen/
+
+# Generated icons
+src-tauri/icons/gen_icons.py
+src/lib/components/gen_logo.py
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local
