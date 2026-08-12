@@ -1,6 +1,6 @@
 <script>
   import "./app.css";
-  import { activeView, showAiSidebar, settings, settingsLoaded, sidebarCollapsed, workspaceStatus, toast } from "./lib/stores.js";
+  import { activeView, showAiSidebar, settings, settingsLoaded, sidebarCollapsed, workspaceStatus, agents, terminalTabs, toast } from "./lib/stores.js";
   import { t, lang } from "./lib/i18n-store.js";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
@@ -76,10 +76,16 @@
         sidebarCollapsed.set(false);
       }
     });
+    // poll agents every 3s
+    if (isTauri()) {
+      pollAgents();
+      agentsTimer = setInterval(pollAgents, 3000);
+    }
     return () => {
       unsub();
       unsub2();
       unsub3();
+      if (agentsTimer) clearInterval(agentsTimer);
     };
   });
 
@@ -91,6 +97,30 @@
   }
   function closeApp() {
     appWindow?.close();
+  }
+
+  // ---- agents polling ----
+  let agentsTimer;
+  async function pollAgents() {
+    if (!isTauri()) return;
+    try {
+      const list = await window.__TAURI_INTERNALS__.invoke("list_agents");
+      agents.set(list);
+    } catch (e) {
+      /* backend not ready */
+    }
+  }
+  function focusAgentTerminal(terminalId) {
+    // switch to terminal view + activate that tab
+    activeView.set("terminal");
+    window.__focusTerminalTab?.(terminalId);
+  }
+  // folder basename
+  function wsName(full) {
+    if (!full) return "";
+    const cleaned = String(full).replace(/\\/g, "/").replace(/\/+$/, "");
+    const parts = cleaned.split("/");
+    return parts[parts.length - 1] || cleaned;
   }
 
   const navItems = [
@@ -174,23 +204,45 @@
         </button>
       {/each}
 
-      <!-- workspace status (collapsed shows dots) -->
-      <div class="sidebar-workspace" class:collapsed={$sidebarCollapsed}>
-        {#if $workspaceStatus.branch}
-          <span class="ws-item" title={$workspaceStatus.dir}>
-            <Icon name="check" size={12} />
-            {#if !$sidebarCollapsed}
-              <span>{$workspaceStatus.branch}{#if $workspaceStatus.dirty} •{/if}</span>
-            {/if}
-          </span>
+      <!-- workspace status -->
+      <div class="sidebar-section" class:collapsed={$sidebarCollapsed}>
+        {#if !$sidebarCollapsed}
+          <div class="section-label">WORKSPACE</div>
         {/if}
-        {#if $workspaceStatus.aiRunning}
-          <span class="ws-item ai">
-            <Icon name="spark" size={12} />
-            {#if !$sidebarCollapsed}
-              <span>{$t.ai.thinking}</span>
+        <div class="ws-row">
+          <Icon name="terminal" size={12} />
+          {#if !$sidebarCollapsed}
+            <span class="ws-folder">{wsName($workspaceStatus.dir) || "~"}</span>
+            {#if $workspaceStatus.branch}
+              <span class="ws-branch">{#if $workspaceStatus.dirty}*{/if}{$workspaceStatus.branch}</span>
             {/if}
-          </span>
+          {:else}
+            <span class="ws-dot" title={$workspaceStatus.dir || "~"}></span>
+          {/if}
+        </div>
+      </div>
+
+      <!-- agents -->
+      <div class="sidebar-section agents" class:collapsed={$sidebarCollapsed}>
+        {#if !$sidebarCollapsed}
+          <div class="section-label">AGENTS {$agents.length || ""}</div>
+        {/if}
+        {#each $agents as agent}
+          <button
+            class="agent-item"
+            class:collapsed={$sidebarCollapsed}
+            onclick={() => focusAgentTerminal(agent.terminal_id)}
+            title={$sidebarCollapsed ? `${agent.name}: ${agent.status}` : `${agent.name} — click to focus terminal`}
+          >
+            <span class="agent-dot" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"}></span>
+            {#if !$sidebarCollapsed}
+              <span class="agent-name">{agent.name}</span>
+              <span class="agent-status" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"}>{agent.status}</span>
+            {/if}
+          </button>
+        {/each}
+        {#if !$agents.length && !$sidebarCollapsed}
+          <div class="agents-empty">no agents running</div>
         {/if}
       </div>
 
@@ -459,7 +511,7 @@
     flex-shrink: 0;
   }
 
-  .sidebar-workspace {
+  .sidebar-section {
     margin-top: 10px;
     padding-top: 8px;
     border-top: 2px dashed var(--border);
@@ -467,15 +519,22 @@
     flex-direction: column;
     gap: 4px;
   }
-  .sidebar-workspace.collapsed {
+  .sidebar-section.collapsed {
     align-items: center;
   }
-  .ws-item {
+  .section-label {
+    font-family: var(--font-menu);
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--text-faint);
+    padding: 0 4px;
+  }
+  .ws-row {
     display: flex;
     align-items: center;
     gap: 6px;
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: 14px;
     color: var(--checklist-green);
     padding: 2px 6px;
     background: var(--surface);
@@ -483,10 +542,86 @@
     border-radius: 3px;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
-  .ws-item.ai {
-    color: var(--music-purple);
+  .ws-folder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 90px;
+  }
+  .ws-branch {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+  .ws-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--checklist-green);
+    display: inline-block;
+  }
+  .sidebar-section.agents {
+    gap: 2px;
+  }
+  .agent-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--text-dim);
+    border: 1px solid transparent;
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+  }
+  .agent-item:hover {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+  }
+  .agent-item.collapsed {
+    justify-content: center;
+    padding: 3px 0;
+  }
+  .agent-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex-shrink: 0;
+  }
+  .agent-dot.running {
+    background: var(--checklist-green);
+  }
+  .agent-dot.blocker {
+    background: var(--danger);
+  }
+  .agent-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-status {
+    font-size: 11px;
+    color: var(--text-faint);
+    text-transform: lowercase;
+  }
+  .agent-status.running {
+    color: var(--checklist-green);
+  }
+  .agent-status.blocker {
+    color: var(--danger);
+    font-weight: 700;
+  }
+  .agents-empty {
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-faint);
+    padding: 2px 6px;
   }
 
   .sidebar-footer {

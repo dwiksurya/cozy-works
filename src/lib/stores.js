@@ -52,6 +52,9 @@ export const workspaceStatus = writable({
 
 export const terminalTabs = writable([]); // [{id, label, createdAt}] — managed by Terminal component
 
+// ---- Agents (auto-detected from terminal processes) ----
+export const agents = writable([]); // [{terminal_id, name, status, pid}]
+
 export function toast(text, type = "info") {
   toastMsg.set({ text, type, id: Date.now() });
   setTimeout(() => toastMsg.set(null), 3500);

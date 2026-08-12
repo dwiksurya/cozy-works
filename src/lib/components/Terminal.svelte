@@ -235,6 +235,12 @@
         }
       }, 100);
     }
+    // expose focus function for sidebar agent click (App.svelte)
+    window.__focusTerminalTab = (termId) => {
+      if (tabs.some((x) => x.id === termId)) {
+        activateTab(termId);
+      }
+    };
     window.addEventListener("resize", () => {
       const active = tabs.find((x) => x.id === activeTabId);
       active?.fit?.fit();
