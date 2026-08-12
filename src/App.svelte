@@ -1,9 +1,10 @@
 <script>
   import "./app.css";
-  import { activeView, showAiSidebar, settings, settingsLoaded, toast } from "./lib/stores.js";
+  import { activeView, showAiSidebar, settings, settingsLoaded, sidebarCollapsed, workspaceStatus, toast } from "./lib/stores.js";
   import { t, lang } from "./lib/i18n-store.js";
   import { onMount } from "svelte";
   import Database from "@tauri-apps/plugin-sql";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
 
   import Dashboard from "./lib/components/Dashboard.svelte";
   import Pomodoro from "./lib/components/Pomodoro.svelte";
@@ -19,6 +20,8 @@
   import AmbientDock from "./lib/components/AmbientDock.svelte";
   import Toast from "./lib/components/Toast.svelte";
   import Icon from "./lib/components/Icon.svelte";
+
+  let appWindow = null;
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -36,20 +39,59 @@
       for (const r of rows) obj[r.key] = r.value;
       settings.update((s) => ({ ...s, ...obj }));
       if (obj.lang) lang.set(obj.lang);
+      if (obj.sidebarCollapsed === "true") sidebarCollapsed.set(true);
     } catch (e) {
       console.warn("loadSettings", e);
     }
     settingsLoaded.set(true);
   }
 
-  onMount(() => {
-    loadSettings();
-    // keep lang in sync when settings.lang changes
+  onMount(async () => {
+    await loadSettings();
+    if (isTauri()) {
+      try {
+        appWindow = getCurrentWindow();
+      } catch (e) {
+        console.warn("window init", e);
+      }
+    }
     const unsub = settings.subscribe((s) => {
       if (s.lang) lang.set(s.lang);
     });
-    return unsub;
+    // persist sidebar collapse
+    const unsub2 = sidebarCollapsed.subscribe((collapsed) => {
+      if (isTauri()) {
+        try {
+          Database.load("sqlite:cozy.db").then((db) => {
+            db.execute("INSERT INTO settings (key, value) VALUES ('sidebarCollapsed', $1) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [String(collapsed)]);
+          });
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    });
+    // auto-expand sidebar when AI needs confirmation (decision 4b)
+    const unsub3 = workspaceStatus.subscribe((ws) => {
+      if (ws.aiAction === "needs-confirm" && $sidebarCollapsed) {
+        sidebarCollapsed.set(false);
+      }
+    });
+    return () => {
+      unsub();
+      unsub2();
+      unsub3();
+    };
   });
+
+  function minimize() {
+    appWindow?.minimize();
+  }
+  function toggleMaximize() {
+    appWindow?.toggleMaximize();
+  }
+  function closeApp() {
+    appWindow?.close();
+  }
 
   const navItems = [
     { id: "dashboard", icon: "home", key: "nav.dashboard" },
@@ -59,82 +101,433 @@
     { id: "memo", icon: "note", key: "nav.memo" },
     { id: "music", icon: "music", key: "nav.music" },
     { id: "terminal", icon: "terminal", key: "nav.terminal" },
-    { id: "settings", icon: "settings", key: "nav.settings" },
   ];
 
   function label(key) {
     return key.split(".").reduce((o, k) => (o ? o[k] : ""), $t);
   }
 
-  // pet & avatar always visible in sidebar footer
-  const petAnimal = $settings.pet || "cat";
+  function navClass(id) {
+    return $activeView === id ? "nav-item active" : "nav-item";
+  }
 </script>
 
 <div class="app-shell">
-  <aside class="sidebar">
-    <div class="brand">
-      <img src="logo.png" alt="" class="logo pixel-canvas" />
-      <span>{$t.brand}</span>
+  <!-- ===== Custom titlebar (drag region) ===== -->
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="tb-left" data-tauri-drag-region>
+      <img src="logo.png" alt="" class="tb-logo pixel-canvas" data-tauri-drag-region />
+      <span class="tb-title" data-tauri-drag-region>{$t.brand}</span>
     </div>
-    {#each navItems as item}
-      <button class="nav-item" class:active={$activeView === item.id} onclick={() => (activeView.set(item.id))}>
-        <span class="nav-icon"><Icon name={item.icon} size={17} /></span>
-        <span>{label(item.key)}</span>
-      </button>
-    {/each}
 
-    <div class="sidebar-footer">
-      <div class="footer-row">
-        <Avatar size={36} />
-        <Pet size={40} showLabel={false} />
+    <div class="tb-center" data-tauri-drag-region>
+      {#if $workspaceStatus.branch}
+        <span class="tb-chip branch"><Icon name="check" size={11} /> {$workspaceStatus.branch}{#if $workspaceStatus.dirty} •{/if}</span>
+      {/if}
+      {#if $workspaceStatus.dir}
+        <span class="tb-chip dir"><Icon name="terminal" size={11} /> {$workspaceStatus.dir}</span>
+      {/if}
+      {#if $workspaceStatus.aiRunning}
+        <span class="tb-chip ai"><Icon name="spark" size={11} /> AI…</span>
+      {/if}
+    </div>
+
+    <div class="tb-right">
+      <button class="tb-btn" onclick={() => activeView.set("settings")} class:active={$activeView === "settings"} title={$t.nav.settings}>
+        <Icon name="settings" size={15} />
+      </button>
+      <button class="tb-btn" onclick={minimize} title="minimize">
+        <Icon name="chevron-down" size={15} />
+      </button>
+      <button class="tb-btn" onclick={toggleMaximize} title="maximize">
+        <Icon name="tab-plus" size={15} />
+      </button>
+      <button class="tb-btn close" onclick={closeApp} title="close">
+        <Icon name="close" size={15} />
+      </button>
+    </div>
+  </div>
+
+  <div class="app-body">
+    <aside class="sidebar" class:collapsed={$sidebarCollapsed}>
+      <button class="collapse-btn" onclick={() => sidebarCollapsed.set(!$sidebarCollapsed)} title="toggle sidebar">
+        <Icon name={$sidebarCollapsed ? "arrow-right" : "arrow-left"} size={14} />
+      </button>
+
+      {#if !$sidebarCollapsed}
+        <div class="brand">
+          <img src="logo.png" alt="" class="logo pixel-canvas" />
+          <span>{$t.brand}</span>
+        </div>
+      {:else}
+        <div class="brand-collapsed">
+          <img src="logo.png" alt="" class="logo pixel-canvas" />
+        </div>
+      {/if}
+
+      {#each navItems as item}
+        <button class={navClass(item.id)} onclick={() => (activeView.set(item.id))} title={$sidebarCollapsed ? label(item.key) : ""}>
+          <span class="nav-icon"><Icon name={item.icon} size={17} /></span>
+          {#if !$sidebarCollapsed}
+            <span>{label(item.key)}</span>
+          {/if}
+        </button>
+      {/each}
+
+      <!-- workspace status (collapsed shows dots) -->
+      <div class="sidebar-workspace" class:collapsed={$sidebarCollapsed}>
+        {#if $workspaceStatus.branch}
+          <span class="ws-item" title={$workspaceStatus.dir}>
+            <Icon name="check" size={12} />
+            {#if !$sidebarCollapsed}
+              <span>{$workspaceStatus.branch}{#if $workspaceStatus.dirty} •{/if}</span>
+            {/if}
+          </span>
+        {/if}
+        {#if $workspaceStatus.aiRunning}
+          <span class="ws-item ai">
+            <Icon name="spark" size={12} />
+            {#if !$sidebarCollapsed}
+              <span>{$t.ai.thinking}</span>
+            {/if}
+          </span>
+        {/if}
       </div>
-      <button class="nav-item" class:active={$showAiSidebar} onclick={() => showAiSidebar.set(!$showAiSidebar)}>
-        <span class="nav-icon"><Icon name="spark" size={17} /></span>
-        <span>{$t.nav.ai}</span>
-      </button>
-    </div>
-  </aside>
 
-  <main class="main-area">
-    {#if $activeView === "dashboard"}
-      <Dashboard />
-    {:else if $activeView === "pomodoro"}
-      <Pomodoro />
-    {:else if $activeView === "todo"}
-      <Todo />
-    {:else if $activeView === "notes"}
-      <Notes />
-    {:else if $activeView === "memo"}
-      <Memo />
-    {:else if $activeView === "music"}
-      <Music />
-    {:else if $activeView === "terminal"}
-      <Terminal />
-    {:else if $activeView === "settings"}
-      <Settings />
+      <div class="sidebar-footer">
+        {#if !$sidebarCollapsed}
+          <div class="footer-row">
+            <Avatar size={36} />
+            <Pet size={40} showLabel={false} />
+          </div>
+        {/if}
+        <button class="nav-item" class:active={$showAiSidebar} onclick={() => showAiSidebar.set(!$showAiSidebar)} title={$sidebarCollapsed ? $t.nav.ai : ""}>
+          <span class="nav-icon"><Icon name="spark" size={17} /></span>
+          {#if !$sidebarCollapsed}
+            <span>{$t.nav.ai}</span>
+          {/if}
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      {#if $activeView === "dashboard"}
+        <Dashboard />
+      {:else if $activeView === "pomodoro"}
+        <Pomodoro />
+      {:else if $activeView === "todo"}
+        <Todo />
+      {:else if $activeView === "notes"}
+        <Notes />
+      {:else if $activeView === "memo"}
+        <Memo />
+      {:else if $activeView === "music"}
+        <Music />
+      {:else if $activeView === "terminal"}
+        <Terminal />
+      {:else if $activeView === "settings"}
+        <Settings />
+      {/if}
+
+      <div class="pet-corner">
+        <Pet size={64} />
+      </div>
+
+      <div class="ambient-dock">
+        <AmbientDock />
+      </div>
+    </main>
+
+    {#if $showAiSidebar}
+      <AiPanel />
     {/if}
-
-    <div class="pet-corner">
-      <Pet size={64} />
-    </div>
-
-    <div class="ambient-dock">
-      <AmbientDock />
-    </div>
-  </main>
-
-  {#if $showAiSidebar}
-    <AiPanel />
-  {/if}
+  </div>
 
   <Toast />
 </div>
 
 <style>
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+    background: var(--bg);
+  }
+
+  /* ===== Custom titlebar ===== */
+  .titlebar {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    flex-shrink: 0;
+    background: var(--surface-container-low);
+    border-bottom: 2px solid var(--text);
+    padding: 0 6px;
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .titlebar button {
+    -webkit-app-region: no-drag;
+  }
+  .tb-left {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 8px;
+  }
+  .tb-logo {
+    width: 16px;
+    height: 16px;
+    image-rendering: pixelated;
+  }
+  .tb-title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .tb-center {
+    flex: 1;
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    padding: 0 10px;
+  }
+  .tb-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    padding: 1px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    max-width: 180px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tb-chip.branch {
+    color: var(--checklist-green);
+  }
+  .tb-chip.ai {
+    color: var(--music-purple);
+  }
+  .tb-right {
+    display: flex;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+  }
+  .tb-btn {
+    width: 30px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .tb-btn:hover {
+    background: var(--surface-dim);
+    color: var(--text);
+  }
+  .tb-btn.active {
+    background: var(--primary);
+    color: var(--on-primary);
+  }
+  .tb-btn.close:hover {
+    background: var(--pomodoro-red);
+    color: #fff;
+  }
+
+  /* ===== Body (below titlebar) ===== */
+  .app-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--surface-container-low);
+    border-right: 2px solid var(--text);
+    display: flex;
+    flex-direction: column;
+    padding: 10px 10px;
+    gap: 3px;
+    transition: width 0.15s ease;
+    position: relative;
+  }
+  .sidebar.collapsed {
+    width: 56px;
+    padding: 10px 6px;
+  }
+  .collapse-btn {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    color: var(--text-faint);
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .collapse-btn:hover {
+    background: var(--surface-dim);
+    color: var(--text);
+  }
+  .sidebar.collapsed .collapse-btn {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 14px;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+    border-bottom: 2px dashed var(--border);
+    margin-bottom: 8px;
+  }
+  .brand .logo,
+  .brand-collapsed .logo {
+    width: 22px;
+    height: 22px;
+    image-rendering: pixelated;
+  }
+  .brand-collapsed {
+    display: flex;
+    justify-content: center;
+    padding: 6px 0 12px;
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    color: var(--text-dim);
+    font-family: var(--font-menu);
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    border: 2px solid transparent;
+    background: none;
+    text-align: left;
+    width: 100%;
+  }
+  .sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .nav-item:hover {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .nav-item.active {
+    background: var(--primary);
+    border-color: var(--text);
+    color: var(--on-primary);
+    font-weight: 700;
+    box-shadow: 2px 2px 0 rgba(61, 50, 38, 0.2);
+  }
+  .nav-icon {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .sidebar-workspace {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 2px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sidebar-workspace.collapsed {
+    align-items: center;
+  }
+  .ws-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-body);
+    font-size: 13px;
+    color: var(--checklist-green);
+    padding: 2px 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ws-item.ai {
+    color: var(--music-purple);
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 2px dashed var(--border);
+  }
   .footer-row {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
+  }
+  .sidebar.collapsed .sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .sidebar.collapsed .sidebar-footer .nav-item {
+    width: auto;
+  }
+
+  .main-area {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    min-width: 0;
+  }
+  .pet-corner {
+    position: absolute;
+    bottom: 12px;
+    left: 16px;
+    z-index: 40;
+    pointer-events: none;
+  }
+  .ambient-dock {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    z-index: 40;
   }
 </style>

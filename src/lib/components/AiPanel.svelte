@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { settings, toast, activeView, showAiSidebar } from "../stores.js";
+  import { settings, toast, activeView, showAiSidebar, workspaceStatus } from "../stores.js";
   import { t } from "../i18n-store.js";
   import { get } from "svelte/store";
   import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
@@ -76,6 +76,7 @@
     messages.push({ role: "user", content: text });
     scrollBottom();
     thinking = true;
+    workspaceStatus.update((ws) => ({ ...ws, aiRunning: true, aiAction: "thinking" }));
 
     const $s = get(settings);
     const baseUrl = $s.aiBaseUrl || "https://router.takora.dev/v1";
@@ -102,7 +103,12 @@
               content:
                 "You are the AI assistant inside Cozy Works, a cozy pixel-zen workspace app. " +
                 "Answer concisely and helpfully. When suggesting shell commands, put them in code blocks. " +
-                "If you need user confirmation before running something, say 'NEEDS_CONFIRM:' followed by the command.",
+                "You can AUTO-EXECUTE commands in the user's terminal by wrapping them like this: " +
+                "```bash:RUN\nnpm install\n``` " +
+                "Safe read-only commands (ls, cat, pwd, git status, git branch, git log, echo, whoami, date, etc.) " +
+                "will run automatically. Commands that change state (npm install, git commit, rm, mkdir, etc.) " +
+                "will ask the user for confirmation first. " +
+                "For destructive commands (rm -rf, git push --force, drop, delete), say 'NEEDS_CONFIRM:' followed by the command.",
             },
             ...messages.filter((m) => m.content),
           ],
@@ -151,47 +157,90 @@
         notify("Cozy Works AI", `AI finished replying: ${text.slice(0, 40)}…`);
       }
 
-      // detect confirmation request
+      // auto-execute: scan for RUN blocks
       const final = messages[msgIdx].content;
+      const blocks = parseCodeBlocks(final);
+      const runBlocks = blocks.filter((b) => b.lang.includes("RUN"));
+      for (const b of runBlocks) {
+        handleCommand(b.code, "auto");
+      }
+
+      // detect confirmation request
       const confirmMatch = final.match(/NEEDS_CONFIRM:\s*([^\n]+)/);
       if (confirmMatch && $s.aiNotifyOnAsk) {
         notify("Cozy Works AI", `AI needs confirmation: ${confirmMatch[1]}`);
         // store pending command
         pendingCommand = confirmMatch[1];
         pendingVisible = true;
+        pendingDangerous = true;
       }
     } catch (e) {
       messages[msgIdx].content = `\n\n[Error: ${e.message}]`;
     } finally {
       thinking = false;
+      workspaceStatus.update((ws) => ({ ...ws, aiRunning: false, aiAction: pendingVisible ? "needs-confirm" : "done" }));
     }
   }
 
   // pending command confirmation UI
   let pendingCommand = "";
   let pendingVisible = false;
+  let pendingDangerous = false;
+
+  function insertToTerminal(cmd, autoEnter = true) {
+    // send command to terminal: write to PTY + enter
+    const clean = cmd.trim().replace(/^```[a-z]*\n?/, "").replace(/```$/, "").trim();
+    if (!clean) return;
+    invoke("write_terminal", { id: getActiveTerminalId(), data: clean + (autoEnter ? "\r" : "") })
+      .then(() => {
+        toast(autoEnter ? "Command executed in terminal" : "Command written to terminal", "info");
+      })
+      .catch((e) => {
+        toast(`Insert failed: ${e}`, "error");
+      });
+  }
+
+  // ---- auto-execute logic (decision 8b) ----
+  const SAFE_CMDS = [
+    "ls", "cat", "pwd", "whoami", "date", "echo", "head", "tail", "wc",
+    "git status", "git branch", "git log", "git diff", "git remote", "git fetch",
+    "npm view", "cargo search", "df", "du", "free", "ps", "which", "type", "find",
+  ];
+  const DANGEROUS_CMDS = ["rm -rf", "rm -fr", "git push --force", "git push -f", "drop table", "drop database", "sudo rm", ":(){"];
+
+  function isSafe(cmd) {
+    return SAFE_CMDS.some((s) => cmd.startsWith(s + " ") || cmd === s);
+  }
+  function isDangerous(cmd) {
+    return DANGEROUS_CMDS.some((d) => cmd.includes(d));
+  }
+
+  function handleCommand(cmd, source) {
+    if (isDangerous(cmd)) {
+      // always confirm destructive
+      pendingCommand = cmd;
+      pendingVisible = true;
+      pendingDangerous = true;
+      return;
+    }
+    if (isSafe(cmd)) {
+      insertToTerminal(cmd, true);
+      return;
+    }
+    // state-changing: confirm
+    pendingCommand = cmd;
+    pendingVisible = true;
+    pendingDangerous = false;
+  }
 
   function confirmCommand() {
     if (!pendingCommand) return;
-    // insert command into terminal
     insertToTerminal(pendingCommand);
     pendingVisible = false;
   }
 
   function dismissConfirm() {
     pendingVisible = false;
-  }
-
-  function insertToTerminal(cmd) {
-    // send command to terminal: write to PTY + enter
-    const clean = cmd.trim().replace(/^```[a-z]*\n?/, "").replace(/```$/, "").trim();
-    invoke("write_terminal", { id: getActiveTerminalId(), data: clean + "\r" })
-      .then(() => {
-        toast("Command inserted into terminal", "info");
-      })
-      .catch((e) => {
-        toast(`Insert failed: ${e}`, "error");
-      });
   }
 
   function getActiveTerminalId() {
@@ -213,7 +262,7 @@
   function parseCodeBlocks(content) {
     // find code blocks for insert buttons
     const blocks = [];
-    const re = /```([a-z]*)\n?([\s\S]*?)```/g;
+    const re = /```([a-z:]*)\n?([\s\S]*?)```/g;
     let m;
     while ((m = re.exec(content))) {
       blocks.push({ lang: m[1], code: m[2].trim() });
@@ -271,14 +320,21 @@
   </div>
 
   {#if pendingVisible}
-    <div class="confirm-bar">
+    <div class="confirm-bar" class:danger={pendingDangerous}>
       <div class="confirm-text">
-        <span class="confirm-icon">⚠️</span>
-        <span>{$t.ai.confirm}: <code>{pendingCommand}</code></span>
+        <Icon name={pendingDangerous ? "alert-triangle" : "terminal"} size={14} />
+        <span>
+          {#if pendingDangerous}
+            {$t.ai.confirmDanger}:
+          {:else}
+            {$t.ai.confirm}:
+          {/if}
+          <code>{pendingCommand}</code>
+        </span>
       </div>
       <div class="confirm-actions">
-        <button class="pixel-btn primary" onclick={confirmCommand}>{$t.ai.insert}</button>
-        <button class="pixel-btn" onclick={dismissConfirm}>✕</button>
+        <button class="pixel-btn primary" onclick={confirmCommand}>{$t.ai.execute}</button>
+        <button class="pixel-btn" onclick={dismissConfirm}><Icon name="close" size={13} /></button>
       </div>
     </div>
   {/if}
@@ -415,6 +471,13 @@
     border-top: 1px solid var(--warn);
     background: rgba(255, 210, 110, 0.08);
     padding: 10px 12px;
+  }
+  .confirm-bar.danger {
+    border-top-color: var(--danger);
+    background: rgba(211, 47, 47, 0.08);
+  }
+  .confirm-bar.danger .confirm-text code {
+    color: var(--danger);
   }
   .confirm-text {
     display: flex;

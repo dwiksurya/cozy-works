@@ -39,6 +39,19 @@ export const showAiSidebar = writable(false);
 export const aiSidebarTab = writable("chat"); // chat | agent
 export const toastMsg = writable(null); // {type, text, id}
 
+export const sidebarCollapsed = writable(false);
+
+// ---- Workspace status (git branch of active terminal, AI activity) ----
+export const workspaceStatus = writable({
+  branch: null,
+  dirty: false,
+  dir: "",
+  aiRunning: false, // true while AI is streaming
+  aiAction: "", // "thinking" | "needs-confirm" | "done"
+});
+
+export const terminalTabs = writable([]); // [{id, label, createdAt}] — managed by Terminal component
+
 export function toast(text, type = "info") {
   toastMsg.set({ text, type, id: Date.now() });
   setTimeout(() => toastMsg.set(null), 3500);
