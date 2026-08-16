@@ -252,12 +252,12 @@
             class="agent-item"
             class:collapsed={$sidebarCollapsed}
             onclick={() => focusAgentTerminal(agent.terminal_id)}
-            title={$sidebarCollapsed ? `${agent.name}: ${agent.status}` : `${agent.name} — click to focus terminal`}
+            title={$sidebarCollapsed ? `${agent.name}: ${agent.status}` : `${agent.name} — ${agent.status}${agent.title ? ` · ${agent.title}` : ""} — click to focus terminal`}
           >
-            <span class="agent-dot" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"}></span>
+            <span class="agent-dot" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"} class:idle={agent.status === "idle"}></span>
             {#if !$sidebarCollapsed}
               <span class="agent-name">{agent.name}</span>
-              <span class="agent-status" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"}>{agent.status}</span>
+              <span class="agent-status" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"} class:idle={agent.status === "idle"}>{agent.status}</span>
             {/if}
           </button>
         {/each}
@@ -618,6 +618,10 @@
   .agent-dot.blocker {
     background: var(--danger);
   }
+  .agent-dot.idle {
+    background: var(--accent);
+    opacity: 0.7;
+  }
   .agent-name {
     flex: 1;
     overflow: hidden;
@@ -635,6 +639,10 @@
   .agent-status.blocker {
     color: var(--danger);
     font-weight: 700;
+  }
+  .agent-status.idle {
+    color: var(--accent);
+    opacity: 0.8;
   }
   .agents-empty {
     font-family: var(--font-body);
