@@ -124,6 +124,24 @@
     return parts[parts.length - 1] || cleaned;
   }
 
+  // ---- live agent title helpers (herdr-style) ----
+  const SPINNER_CHARS = new Set(["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","⠁","⠂","⠄","⡀","⢀","⣀"]);
+  function stripStatusIcon(title) {
+    if (!title) return "";
+    let s = String(title).trim();
+    // drop leading status chars (braille spinner, ⏳⚠✓✳⌛…)
+    while (s.length) {
+      const c = s[0];
+      if (SPINNER_CHARS.has(c) || c === "⏳" || c === "⚠" || c === "✓" || c === "✳" || c === "⌛") {
+        s = s.slice(1).trimStart();
+      } else break;
+    }
+    return s;
+  }
+  function statusIcon(status) {
+    return status === "blocker" ? "⚠" : status === "running" ? "⏳" : "✓";
+  }
+
   const navItems = [
     { id: "dashboard", icon: "home", key: "nav.dashboard" },
     { id: "pomodoro", icon: "clock", key: "nav.pomodoro" },
@@ -179,6 +197,14 @@
       {/if}
       {#if $workspaceStatus.dir}
         <span class="tb-chip dir"><Icon name="terminal" size={11} /> {$workspaceStatus.dir}</span>
+      {/if}
+      {#if $agents.length}
+        <span class="tb-chip agent" class:blocker={$agents[0].status === "blocker"} class:idle={$agents[0].status === "idle"} title={$agents[0].title || ""}>
+          <span class="tb-agent-dot" class:running={$agents[0].status === "running"} class:blocker={$agents[0].status === "blocker"} class:idle={$agents[0].status === "idle"}></span>
+          {$agents[0].name}
+          {#if $agents[0].status === "running"}<span class="tb-agent-spin">⏳</span>{/if}
+          {#if stripStatusIcon($agents[0].title)}<span class="tb-agent-title">· {stripStatusIcon($agents[0].title)}</span>{/if}
+        </span>
       {/if}
     </div>
 
@@ -256,8 +282,11 @@
           >
             <span class="agent-dot" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"} class:idle={agent.status === "idle"}></span>
             {#if !$sidebarCollapsed}
-              <span class="agent-name">{agent.name}</span>
-              <span class="agent-status" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"} class:idle={agent.status === "idle"}>{agent.status}</span>
+              <span class="agent-main">
+                <span class="agent-name">{agent.name}</span>
+                {#if agent.title}<span class="agent-title">{stripStatusIcon(agent.title) || agent.title}</span>{/if}
+              </span>
+              <span class="agent-status" class:running={agent.status === "running"} class:blocker={agent.status === "blocker"} class:idle={agent.status === "idle"}>{statusIcon(agent.status)} {agent.status}</span>
             {/if}
           </button>
         {/each}
@@ -371,6 +400,61 @@
   }
   .tb-chip.branch {
     color: var(--checklist-green);
+    border-color: var(--checklist-green);
+  }
+  .tb-chip.agent {
+    border-color: var(--primary);
+    gap: 5px;
+    max-width: 320px;
+    overflow: hidden;
+  }
+  .tb-chip.agent.blocker {
+    border-color: var(--danger);
+    animation: agent-blocker-pulse 1.2s ease-in-out infinite;
+  }
+  .tb-chip.agent.idle {
+    opacity: 0.75;
+  }
+  @keyframes agent-blocker-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 60, 60, 0.35); }
+    50% { box-shadow: 0 0 0 4px rgba(255, 60, 60, 0); }
+  }
+  .tb-agent-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    flex-shrink: 0;
+  }
+  .tb-agent-dot.running {
+    background: var(--checklist-green);
+    animation: agent-dot-blink 1s steps(2, start) infinite;
+  }
+  .tb-agent-dot.blocker {
+    background: var(--danger);
+  }
+  .tb-agent-dot.idle {
+    background: var(--accent);
+    opacity: 0.7;
+  }
+  @keyframes agent-dot-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0.35; }
+  }
+  .tb-agent-spin {
+    font-size: 11px;
+    animation: agent-spin 1s linear infinite;
+    display: inline-block;
+  }
+  @keyframes agent-spin {
+    to { transform: rotate(360deg); }
+  }
+  .tb-agent-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-dim);
+    font-size: 11px;
   }
   .tb-chip.ai {
     color: var(--music-purple);
@@ -627,6 +711,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .agent-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .agent-title {
+    font-size: 10px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
   }
   .agent-status {
     font-size: 11px;
