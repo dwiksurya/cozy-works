@@ -10,21 +10,30 @@
   import { toast, workspaceStatus, terminalTabs } from "../stores.js";
   import { get } from "svelte/store";
   import Icon from "./Icon.svelte";
+  import PaneTree from "./PaneTree.svelte";
 
-  // Tab model: { id (termId), label (path or name), term (xterm instance), fit, container }
-  let tabs = [];
+  // ============================================================
+  // Layout model — multiplexer tree (tmux/herdr style)
+  //   Node = { type: "leaf", paneId } | { type: "branch", dir: "row"|"col", ratio, children: [Node] }
+  //   dir "row" = horizontal split (children side by side)
+  //   dir "col" = vertical split (children stacked)
+  // ============================================================
+  let tabs = []; // [{id, label, labelFull, root: Node, activePane: paneId, termById: {} }]
   let activeTabId = null;
-  let containerRefs = {}; // id -> DOM element
+  let containerRefs = {}; // paneId -> DOM element
   let unlisten = [];
-  let statusTimer;
-  let loading = true; // shell spawning indicator
+  let loading = true;
+
+  // pane counter (unique ids; terminal ids come from backend)
+  let paneSeq = 1;
+  const nextPaneId = () => `p${paneSeq++}`;
 
   function isTauri() {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
   }
 
-  function homeDir() {
-    return isTauri() ? (window.__TAURI_INTERNALS__?.invoke ? "" : "") : "";
+  function leaf(paneId) {
+    return { type: "leaf", paneId };
   }
 
   function createTerm(opts = {}) {
@@ -41,35 +50,132 @@
     return { term, fit };
   }
 
+  // ---- layout helpers ----
+  function collectPaneIds(node, out = []) {
+    if (!node) return out;
+    if (node.type === "leaf") out.push(node.paneId);
+    else node.children.forEach((c) => collectPaneIds(c, out));
+    return out;
+  }
+
+  function paneCount(node) {
+    if (!node) return 0;
+    return node.type === "leaf" ? 1 : node.children.reduce((a, c) => a + paneCount(c), 0);
+  }
+
+  function findPaneNode(node, paneId) {
+    if (!node) return null;
+    if (node.type === "leaf") return node.paneId === paneId ? node : null;
+    for (const c of node.children) {
+      const r = findPaneNode(c, paneId);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  function firstPaneId(node) {
+    if (!node) return null;
+    if (node.type === "leaf") return node.paneId;
+    return firstPaneId(node.children[0]);
+  }
+
+  // Split the node containing paneId; if its parent is already a branch in
+  // the same direction, append a sibling (tmux-style) instead of nesting.
+  function splitPane(root, paneId, dir) {
+    const parent = findParentNode(root, paneId);
+    if (parent && parent.type === "branch" && parent.dir === dir) {
+      // append sibling to existing same-dir branch
+      const newPane = nextPaneId();
+      parent.children.push(leaf(newPane));
+      parent.ratio = 1 / parent.children.length;
+      return newPane;
+    }
+    // replace leaf with branch
+    const newPane = nextPaneId();
+    const branch = {
+      type: "branch",
+      dir,
+      ratio: 0.5,
+      children: [leaf(paneId), leaf(newPane)],
+    };
+    if (!parent) {
+      // root replaced
+      Object.assign(root, branch);
+    } else {
+      const idx = parent.children.findIndex((c) => c.type === "leaf" && c.paneId === paneId);
+      if (idx !== -1) parent.children[idx] = branch;
+    }
+    return newPane;
+  }
+
+  // Find the parent of a node. `target` may be a paneId string (match leaf by
+  // id) or a branch node reference (match by identity, used during collapse).
+  function findParentNode(node, target) {
+    if (!node || node.type === "leaf") return null;
+    for (const c of node.children) {
+      if (c === target) return node;
+      if (c.type === "leaf" && c.paneId === target) return node;
+      const r = findParentNode(c, target);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  // Remove a leaf. Collapse single-child branches upward.
+  function closePane(root, paneId) {
+    const parent = findParentNode(root, paneId);
+    if (!parent) return false; // last pane — cannot close
+    const idx = parent.children.findIndex((c) => c.type === "leaf" && c.paneId === paneId);
+    if (idx === -1) return false;
+    parent.children.splice(idx, 1);
+    if (parent.children.length === 1) {
+      // collapse branch into its single child
+      const only = parent.children[0];
+      const grandparent = findParentNode(root, parent);
+      if (!grandparent) {
+        // root is the branch — replace contents with the only child
+        Object.keys(root).forEach((k) => delete root[k]);
+        Object.assign(root, only);
+      } else {
+        const gi = grandparent.children.findIndex((c) => c === parent);
+        grandparent.children[gi] = only;
+      }
+    } else {
+      parent.ratio = 1 / parent.children.length;
+    }
+    return true;
+  }
+
+  // ---- tab lifecycle ----
   async function newTab() {
     if (!isTauri()) return;
     try {
       loading = true;
       const info = await invoke("spawn_terminal");
       loading = false;
-      const id = info.id;
+      const paneId = nextPaneId();
       const tab = {
-        id,
+        id: info.id, // tab id == first pane backend id (back-compat)
         label: "shell",
         labelFull: "",
-        term: null,
-        fit: null,
-        pending: true,
-        container: null,
+        root: leaf(paneId),
+        activePane: paneId,
+        terms: {}, // paneId -> {term, fit, mounted}
+        paneIds: new Set([paneId]),
+        termBackend: { [paneId]: info.id }, // paneId -> backend terminal id
       };
       tabs = [...tabs, tab];
-      activeTabId = id;
+      activeTabId = tab.id;
       syncTabs();
-      // update label to HOME path shortly after
       setTimeout(() => {
-        const tb = tabs.find((x) => x.id === id);
+        const tb = tabs.find((x) => x.id === tab.id);
         if (tb) {
           tb.label = "~";
           tb.labelFull = "~";
         }
         syncTabs();
       }, 300);
-      return id;
+      return tab.id;
     } catch (e) {
       toast(`Terminal error: ${e}`, "error");
       return null;
@@ -80,8 +186,9 @@
     const idx = tabs.findIndex((x) => x.id === id);
     if (idx === -1) return;
     const tab = tabs[idx];
-    tab.term?.dispose();
-    if (isTauri()) invoke("kill_terminal", { id });
+    tab.terms.forEach(({ term }) => term?.dispose());
+    // kill all backend terminals in this tab
+    Object.values(tab.termBackend || {}).forEach((bid) => invoke("kill_terminal", { id: bid }).catch(() => {}));
     tabs = tabs.filter((x) => x.id !== id);
     if (activeTabId === id) {
       activeTabId = tabs.length ? tabs[tabs.length - 1].id : null;
@@ -90,74 +197,130 @@
     if (!tabs.length) refreshWorkspace();
   }
 
-  function activateTab(id) {
-    activeTabId = id;
+  // ---- split / close pane from UI ----
+  async function doSplit(dir) {
+    const tab = tabs.find((x) => x.id === activeTabId);
+    if (!tab || !isTauri()) return;
+    const info = await invoke("spawn_terminal");
+    const paneId = splitPane(tab.root, tab.activePane, dir);
+    tab.paneIds.add(paneId);
+    // map pane -> backend terminal id
+    tab.termBackend = tab.termBackend || {};
+    tab.termBackend[paneId] = info.id;
+    tab.activePane = paneId;
     syncTabs();
-    // refit + focus
     setTimeout(() => {
-      const tab = tabs.find((x) => x.id === id);
-      tab?.fit?.fit();
-      tab?.term?.focus();
-    }, 30);
+      const t = tab.terms[paneId];
+      t?.fit?.fit();
+      t?.term?.focus();
+    }, 60);
   }
 
+  async function doClosePane() {
+    const tab = tabs.find((x) => x.id === activeTabId);
+    if (!tab) return;
+    const removed = tab.activePane;
+    const backendId = tab.termBackend?.[removed];
+    const ok = closePane(tab.root, removed);
+    if (ok) {
+      tab.paneIds.delete(removed);
+      tab.terms[removed]?.term?.dispose();
+      delete tab.terms[removed];
+      delete tab.termBackend?.[removed];
+      if (backendId != null) invoke("kill_terminal", { id: backendId }).catch(() => {});
+      tab.activePane = firstPaneId(tab.root);
+      syncTabs();
+    }
+  }
+
+  function focusPane(paneId) {
+    const tab = tabs.find((x) => x.id === activeTabId);
+    if (!tab) return;
+    tab.activePane = paneId;
+    syncTabs();
+    setTimeout(() => {
+      const t = tab.terms[paneId];
+      t?.fit?.fit();
+      t?.term?.focus();
+    }, 40);
+  }
+
+  function zoomPane() {
+    const tab = tabs.find((x) => x.id === activeTabId);
+    if (!tab) return;
+    tab.zoom = tab.zoom === tab.activePane ? null : tab.activePane;
+    syncTabs();
+  }
+
+  // ---- rendering ----
   function syncTabs() {
     terminalTabs.set(
       tabs.map((x) => ({ id: x.id, label: x.label, labelFull: x.labelFull, active: x.id === activeTabId }))
     );
-    // expose active terminal id for AI insert
     if (typeof window !== "undefined") window.__activeTerminalId = activeTabId;
-    // mount terms after DOM update
     setTimeout(mountTerms, 20);
+  }
+
+  // All pane ids that should be mounted (visible or zoomed)
+  function visiblePaneIds(tab) {
+    if (!tab) return [];
+    if (tab.zoom) return [tab.zoom];
+    return collectPaneIds(tab.root);
   }
 
   function mountTerms() {
     for (const tab of tabs) {
-      const el = containerRefs[tab.id];
-      if (el && !tab.term) {
-        const { term, fit } = createTerm();
-        term.open(el);
-        term.writeln("\x1b[36m~ cozy-works terminal\x1b[0m");
-        tab.term = term;
-        tab.fit = fit;
-        fit.fit();
-        // wire data
-        term.onData((data) => {
-          if (!activeTabId) return;
-          invoke("write_terminal", { id: tab.id, data }).catch(() => {});
-          if (data === "\r") parseOutput(tab, "\r");
-        });
-        if (tab.pending) {
-          tab.pending = false;
-          term.write("");
+      const visible = new Set(visiblePaneIds(tab));
+      // mount visible
+      for (const pid of visible) {
+        const el = containerRefs[`${tab.id}:${pid}`];
+        if (!el) continue;
+        const backendId = tab.termBackend?.[pid] ?? (pid === firstPaneId(tab.root) ? tab.id : null);
+        if (backendId == null) continue;
+        let entry = tab.terms[pid];
+        if (!el.dataset.mounted && !entry) {
+          const { term, fit } = createTerm();
+          term.open(el);
+          term.writeln("\x1b[36m~ cozy-works terminal\x1b[0m");
+          entry = { term, fit, backendId };
+          tab.terms[pid] = entry;
+          fit.fit();
+          term.onData((data) => {
+            if (tab.activePane !== pid) return;
+            invoke("write_terminal", { id: backendId, data }).catch(() => {});
+            if (data === "\r") parseOutput(tab, data);
+          });
+          el.dataset.mounted = "1";
+          if (tab.activePane === pid) setTimeout(() => term.focus(), 30);
+        } else if (entry) {
+          entry.backendId = backendId;
         }
-        // focus terminal so keyboard input works
-        if (tab.id === activeTabId) {
-          setTimeout(() => term.focus(), 30);
+        el.style.display = "block";
+        if (tab.activePane === pid) {
+          setTimeout(() => {
+            entry?.fit?.fit();
+            entry?.term?.focus();
+          }, 50);
         }
       }
-      if (el) el.style.display = tab.id === activeTabId ? "block" : "none";
-      if (tab.id === activeTabId) {
-        setTimeout(() => {
-          tab.fit?.fit();
-          tab.term?.focus();
-        }, 50);
+      // hide non-visible
+      for (const pid of tab.paneIds) {
+        const el = containerRefs[`${tab.id}:${pid}`];
+        if (el && !visible.has(pid)) el.style.display = "none";
       }
     }
   }
 
-  // Svelte action to register container element per tab id
-  function containerAction(node, tabId) {
-    containerRefs[tabId] = node;
+  function containerAction(node, key) {
+    containerRefs[key] = node;
     return {
       destroy() {
-        delete containerRefs[tabId];
+        delete containerRefs[key];
       },
     };
   }
 
   function parseOutput(tab, data) {
-    // extract cwd from prompt lines like "user@host:/path$"
     const lines = String(data).split("\n");
     const last = lines[lines.length - 1] || "";
     const m = last.match(/([^\s]*\/[^\s$]*)\s*[\$#]/);
@@ -202,29 +365,112 @@
     }
   }
 
-  // listen PTY events for ALL tabs
+  // ---- PTY events ----
   async function initListeners() {
     unlisten.push(
       await listen("pty://output", (e) => {
         const { id, data } = e.payload;
-        const tab = tabs.find((x) => x.id === id);
-        if (tab && tab.term) {
-          tab.term.write(data);
-          if (id === activeTabId) parseOutput(tab, data);
+        // find tab/pane that maps to this backend terminal id
+        for (const tab of tabs) {
+          const pid = Object.keys(tab.termBackend || {}).find((k) => tab.termBackend[k] === id);
+          const entry = tab.terms[pid];
+          if (entry) {
+            entry.term.write(data);
+            if (tab.activePane === pid) parseOutput(tab, data);
+          }
         }
-        // shell is ready — hide loading
         if (loading) loading = false;
       })
     );
     unlisten.push(
       await listen("pty://exit", (e) => {
         const { id } = e.payload;
-        const tab = tabs.find((x) => x.id === id);
-        if (tab && tab.term) {
-          tab.term.writeln("\r\n\x1b[33m[process exited]\x1b[0m");
+        for (const tab of tabs) {
+          const pid = Object.keys(tab.termBackend || {}).find((k) => tab.termBackend[k] === id);
+          const entry = tab.terms[pid];
+          if (entry) entry.term.writeln("\r\n\x1b[33m[process exited]\x1b[0m");
         }
       })
     );
+  }
+
+  // ---- keyboard shortcuts (tmux-style Ctrl+B prefix) ----
+  let prefixActive = false;
+  let prefixTimer = null;
+
+  function onKeydown(e) {
+    // if typing inside xterm, xterm handles keys — but we intercept global
+    // shortcuts only when NOT in an editable field (xterm textarea is .xterm-helper-textarea)
+    if (prefixActive) {
+      e.preventDefault();
+      const tab = tabs.find((x) => x.id === activeTabId);
+      const k = e.key.toLowerCase();
+      if (k === "%" || (e.shiftKey && k === "5")) doSplit("row"); // Ctrl+B % → horizontal split
+      else if (k === '"' || (e.shiftKey && k === "'")) doSplit("col"); // Ctrl+B " → vertical split
+      else if (k === "arrowleft") moveFocus(-1, 0);
+      else if (k === "arrowright") moveFocus(1, 0);
+      else if (k === "arrowup") moveFocus(0, -1);
+      else if (k === "arrowdown") moveFocus(0, 1);
+      else if (k === "x") doClosePane();
+      else if (k === "z") zoomPane();
+      else if (k === "c") newTab();
+      else if (k === "escape" || k === "q") { /* exit prefix */ }
+      clearPrefixTimer();
+      prefixActive = false;
+      return;
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      prefixActive = true;
+      clearPrefixTimer();
+      prefixTimer = setTimeout(() => (prefixActive = false), 1500);
+    }
+  }
+
+  function clearPrefixTimer() {
+    if (prefixTimer) clearTimeout(prefixTimer);
+  }
+
+  function moveFocus(dx, dy) {
+    const tab = tabs.find((x) => x.id === activeTabId);
+    if (!tab) return;
+    const ids = collectPaneIds(tab.root);
+    if (ids.length < 2) return;
+    const idx = ids.indexOf(tab.activePane);
+    if (idx === -1) return;
+    let next = idx;
+    if (dx !== 0) {
+      // simple ordering: next in array (right) / prev (left)
+      next = (idx + dx + ids.length) % ids.length;
+    } else if (dy !== 0) {
+      next = (idx + dy + ids.length) % ids.length;
+    }
+    focusPane(ids[next]);
+  }
+
+  // ---- drag resize ----
+  function startDrag(ev, dir, tabId, branch) {
+    ev.preventDefault();
+    const tab = tabs.find((x) => x.id === tabId);
+    if (!tab) return;
+    const startX = ev.clientX;
+    const startY = ev.clientY;
+    const startRatio = branch.ratio;
+    const container = ev.currentTarget.parentElement;
+    const rect = container.getBoundingClientRect();
+    function onMove(mv) {
+      let delta = dir === "row" ? mv.clientX - startX : mv.clientY - startY;
+      let ratio = startRatio + (dir === "row" ? delta / rect.width : delta / rect.height);
+      ratio = Math.min(0.85, Math.max(0.15, ratio));
+      branch.ratio = ratio;
+      syncTabs();
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   onMount(async () => {
@@ -232,40 +478,73 @@
       await initListeners();
       await newTab();
     } else {
-      // browser fallback: fake terminal
       const id = "browser";
-      tabs = [{ id, label: "demo", term: null, fit: null, pending: false, container: null }];
+      const paneId = nextPaneId();
+      tabs = [{
+        id,
+        label: "demo",
+        labelFull: "",
+        root: leaf(paneId),
+        activePane: paneId,
+        terms: {},
+        paneIds: new Set([paneId]),
+        termBackend: {},
+      }];
       activeTabId = id;
-      loading = false; // browser demo is ready immediately
+      loading = false;
       syncTabs();
       setTimeout(() => {
         const tab = tabs[0];
-        if (tab && tab.term) {
-          tab.term.writeln("\x1b[36mCozy Works terminal — browser demo mode\x1b[0m");
-          tab.term.onData((d) => {
-            tab.term.write(d);
-            if (d === "\r") tab.term.write("\r\n$ ");
+        const entry = tab.terms[paneId];
+        if (entry && entry.term) {
+          entry.term.writeln("\x1b[36mCozy Works terminal — browser demo mode\x1b[0m");
+          entry.term.onData((d) => {
+            entry.term.write(d);
+            if (d === "\r") entry.term.write("\r\n$ ");
           });
         }
       }, 100);
     }
-    // expose focus function for sidebar agent click (App.svelte)
     window.__focusTerminalTab = (termId) => {
-      if (tabs.some((x) => x.id === termId)) {
-        activateTab(termId);
+      // termId is the backend terminal id of the pane where the agent runs.
+      // Find the tab+pane that maps to it.
+      for (const tab of tabs) {
+        for (const [pid, bid] of Object.entries(tab.termBackend || {})) {
+          if (bid === termId) {
+            activeTabId = tab.id;
+            tab.activePane = pid;
+            syncTabs();
+            setTimeout(() => {
+              const entry = tab.terms[pid];
+              entry?.fit?.fit();
+              entry?.term?.focus();
+            }, 40);
+            return;
+          }
+        }
       }
     };
+    window.__focusPane = (paneId) => focusPane(paneId);
+    window.addEventListener("keydown", onKeydown);
     window.addEventListener("resize", () => {
       const active = tabs.find((x) => x.id === activeTabId);
-      active?.fit?.fit();
+      if (!active) return;
+      collectPaneIds(active.root).forEach((pid) => {
+        active.terms[pid]?.fit?.fit();
+      });
     });
   });
 
   onDestroy(() => {
     unlisten.forEach((u) => u());
+    window.removeEventListener("keydown", onKeydown);
     for (const tab of tabs) {
-      tab.term?.dispose();
-      if (isTauri()) invoke("kill_terminal", { id: tab.id }).catch(() => {});
+      tab.terms.forEach(({ term }) => term?.dispose());
+      const ids = collectPaneIds(tab.root);
+      ids.forEach((pid) => {
+        const backendId = tab.termBackend?.[pid];
+        if (backendId != null) invoke("kill_terminal", { id: backendId }).catch(() => {});
+      });
     }
   });
 </script>
@@ -273,7 +552,7 @@
 <div class="terminal-view">
   <div class="tab-bar">
     {#each tabs as tab}
-      <div class="term-tab" class:active={tab.id === activeTabId} onclick={() => activateTab(tab.id)} title={tab.labelFull || tab.label}>
+      <div class="term-tab" class:active={tab.id === activeTabId} onclick={() => { activeTabId = tab.id; syncTabs(); }} title={tab.labelFull || tab.label}>
         <Icon name="terminal" size={12} />
         <span class="tab-label">{tab.label}</span>
         <button class="tab-close" onclick={(e) => { e.stopPropagation(); closeTab(tab.id); }}>
@@ -285,7 +564,7 @@
       <Icon name="plus" size={13} />
     </button>
     <span class="tab-spacer"></span>
-    <span class="tab-hint">git branch shown in topbar</span>
+    <span class="tab-hint">ctrl+b % split · " vsplit · ←→↑↓ nav · x close · z zoom</span>
   </div>
 
   <div class="term-container">
@@ -295,8 +574,20 @@
         <span>Starting shell…</span>
       </div>
     {/if}
+
     {#each tabs as tab}
-      <div class="term-pane" use:containerAction={tab.id}></div>
+      {#if tab.id === activeTabId}
+        <div class="term-mux">
+          {#if tab.zoom}
+            <div class="pane-wrap active" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;">
+              <div class="pane-titlebar"><span class="pane-title">zoom: {tab.zoom} <small>(ctrl+b z to unzoom)</small></span></div>
+              <div class="pane-body" use:containerAction={`${tab.id}:${tab.zoom}`}></div>
+            </div>
+          {:else}
+            <PaneTree {tab} {startDrag} {containerAction} {focusPane} />
+          {/if}
+        </div>
+      {/if}
     {/each}
   </div>
 </div>
@@ -377,8 +668,11 @@
   }
   .tab-hint {
     font-family: var(--font-body);
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .term-container {
     flex: 1;
@@ -408,15 +702,67 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
+    to { transform: rotate(360deg); }
   }
-  .term-pane {
+  .term-mux {
     position: absolute;
     inset: 0;
-    padding: 4px;
+    display: flex;
+    padding: 2px;
+    gap: 0;
+  }
+  .branch {
+    display: flex;
+    width: 100%;
+    height: 100%;
+  }
+  .branch-child {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+  }
+  .pane-divider {
+    flex: 0 0 4px;
+    background: var(--border);
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+  }
+  .pane-divider.col {
+    cursor: row-resize;
+  }
+  .pane-divider:hover {
+    background: var(--primary);
+  }
+  .pane-wrap {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .pane-wrap.active {
+    border-color: var(--primary);
+  }
+  .pane-titlebar {
+    display: flex;
+    align-items: center;
+    padding: 2px 6px;
+    font-family: var(--font-body);
+    font-size: 11px;
+    color: var(--text-faint);
+    background: var(--surface-container-low);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .pane-body {
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
+    position: relative;
   }
   :global(.xterm) {
     height: 100%;

@@ -1,4 +1,4 @@
-use portable_pty::{native_pty_system, Child, CommandBuilder, PtySize};
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -14,6 +14,8 @@ pub struct PtyState {
 pub struct PtySession {
     child: Box<dyn Child + Send + Sync>,
     writer: Option<Box<dyn std::io::Write + Send>>,
+    /// Master PTY handle — kept for resize() (takes &self)
+    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
     /// Last ~4KB of terminal output (for agent screen-based detection)
     last_output: Arc<Mutex<String>>,
     /// Shell child PID (for agent process detection)
@@ -99,8 +101,18 @@ pub fn spawn_terminal(app: AppHandle, state: State<PtyState>) -> Result<TermInfo
 
     let shell_pid = child.process_id();
 
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let master: Box<dyn MasterPty + Send> = pair.master.into();
+    let master = Arc::new(Mutex::new(master));
+    let mut reader = master
+        .lock()
+        .unwrap()
+        .try_clone_reader()
+        .map_err(|e| e.to_string())?;
+    let writer = master
+        .lock()
+        .unwrap()
+        .take_writer()
+        .map_err(|e| e.to_string())?;
 
     let mut next = state.next_id.lock().unwrap();
     let id = *next;
@@ -115,6 +127,7 @@ pub fn spawn_terminal(app: AppHandle, state: State<PtyState>) -> Result<TermInfo
         PtySession {
             child,
             writer: Some(writer),
+            master: master.clone(),
             last_output: last_output.clone(),
             shell_pid,
             osc_title: osc_title.clone(),
@@ -238,6 +251,24 @@ pub fn kill_terminal(state: State<PtyState>, id: u32) -> Result<(), String> {
         let _ = session.child.kill();
     }
     Ok(())
+}
+
+/// Resize a PTY to the given rows/cols (used by multiplexer pane resize).
+#[tauri::command]
+pub fn resize_terminal(state: State<PtyState>, id: u32, rows: u16, cols: u16) -> Result<(), String> {
+    let sessions = state.sessions.lock().unwrap();
+    let session = sessions
+        .get(&id)
+        .ok_or_else(|| format!("terminal {id} not found"))?;
+    let master = session.master.lock().unwrap();
+    master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

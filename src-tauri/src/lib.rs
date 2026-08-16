@@ -77,6 +77,7 @@ pub fn run() {
             pty::spawn_terminal,
             pty::write_terminal,
             pty::kill_terminal,
+            pty::resize_terminal,
             pty::list_terminals,
             pty::list_agents,
             pty::git_branch,
