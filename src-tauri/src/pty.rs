@@ -566,26 +566,50 @@ fn update_status(
 
 #[tauri::command]
 pub fn list_agents(state: State<PtyState>) -> Vec<AgentInfo> {
-    let sessions = state.sessions.lock().unwrap();
+    // Snapshot shell pids + per-session signals quickly, WITHOUT holding the
+    // sessions lock during the (potentially slow) process scan. Holding it
+    // across /proc recursion blocks write_terminal (user keystrokes) — input
+    // would stall every 3s poll.
+    let snapshots: Vec<(u32, Option<u32>, Option<String>, String, String, Option<Instant>)> = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .map(|(id, session)| {
+                let osc = session.osc_title.lock().unwrap().clone();
+                let last = session.last_output.lock().unwrap().clone();
+                let status = session.status.lock().unwrap().clone();
+                let pending = *session.pending_idle.lock().unwrap();
+                (*id, session.shell_pid, osc, last, status, pending)
+            })
+            .collect()
+    };
+
     let mut agents = Vec::new();
-    for (id, session) in sessions.iter() {
-        let shell_pid = match session.shell_pid {
-            Some(p) => p,
-            None => continue,
-        };
-        let Some((pid, name)) = find_agent_process(shell_pid) else {
+    for (id, shell_pid, osc, last, mut cur, mut pending) in snapshots {
+        let Some(pid) = shell_pid else {
             continue;
         };
-        let osc = session.osc_title.lock().unwrap().clone();
-        let last = session.last_output.lock().unwrap().clone();
-        let mut cur = session.status.lock().unwrap();
-        let mut pending = session.pending_idle.lock().unwrap();
-        let status = update_status(&mut cur, &mut pending, Instant::now(), &name, osc.as_deref(), &last);
+        let Some((agent_pid, name)) = find_agent_process(pid) else {
+            continue;
+        };
+        let status = update_status(
+            &mut cur,
+            &mut pending,
+            Instant::now(),
+            &name,
+            osc.as_deref(),
+            &last,
+        );
+        // persist updated status back (best-effort; skip if session closed)
+        if let Some(session) = state.sessions.lock().unwrap().get(&id) {
+            *session.status.lock().unwrap() = cur;
+            *session.pending_idle.lock().unwrap() = pending;
+        }
         agents.push(AgentInfo {
-            terminal_id: *id,
+            terminal_id: id,
             name,
             status,
-            pid,
+            pid: agent_pid,
             title: osc,
         });
     }
