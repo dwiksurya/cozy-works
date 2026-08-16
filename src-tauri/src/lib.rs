@@ -80,6 +80,7 @@ pub fn run() {
             pty::resize_terminal,
             pty::list_terminals,
             pty::list_agents,
+            pty::list_panes,
             pty::git_branch,
             music::scan_music
         ])

@@ -7,7 +7,7 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import "xterm/css/xterm.css";
   import { t } from "../i18n-store.js";
-  import { toast, workspaceStatus, terminalTabs } from "../stores.js";
+  import { toast, workspaceStatus, terminalTabs, panes } from "../stores.js";
   import { get } from "svelte/store";
   import Icon from "./Icon.svelte";
   import PaneTree from "./PaneTree.svelte";
@@ -394,6 +394,18 @@
     );
   }
 
+  // ---- pane info polling (process name + status for titlebars) ----
+  let panesTimer = null;
+  async function pollPanes() {
+    if (!isTauri()) return;
+    try {
+      const list = await window.__TAURI_INTERNALS__.invoke("list_panes");
+      panes.set(list);
+    } catch (e) {
+      /* backend not ready */
+    }
+  }
+
   // ---- keyboard shortcuts (tmux-style Ctrl+B prefix) ----
   let prefixActive = false;
   let prefixTimer = null;
@@ -477,6 +489,8 @@
     if (isTauri()) {
       await initListeners();
       await newTab();
+      pollPanes();
+      panesTimer = setInterval(pollPanes, 2000);
     } else {
       const id = "browser";
       const paneId = nextPaneId();
@@ -537,6 +551,7 @@
 
   onDestroy(() => {
     unlisten.forEach((u) => u());
+    if (panesTimer) clearInterval(panesTimer);
     window.removeEventListener("keydown", onKeydown);
     for (const tab of tabs) {
       tab.terms.forEach(({ term }) => term?.dispose());
@@ -580,7 +595,9 @@
         <div class="term-mux">
           {#if tab.zoom}
             <div class="pane-wrap active" style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;">
-              <div class="pane-titlebar"><span class="pane-title">zoom: {tab.zoom} <small>(ctrl+b z to unzoom)</small></span></div>
+              <div class="pane-titlebar">
+                <span class="pane-name">zoom: {tab.zoom} <small>(ctrl+b z to unzoom)</small></span>
+              </div>
               <div class="pane-body" use:containerAction={`${tab.id}:${tab.zoom}`}></div>
             </div>
           {:else}

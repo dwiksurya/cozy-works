@@ -293,13 +293,26 @@ pub struct GitStatus {
 // Plus a pending-idle confirmation to avoid flicker on working→idle.
 // ===========================================================================
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize)]
 pub struct AgentInfo {
-    pub terminal_id: u32,
-    pub name: String,
-    pub status: String, // "running" | "blocker" | "idle"
-    pub pid: u32,
-    pub title: Option<String>, // last OSC title (may hold status icon)
+    terminal_id: u32,
+    name: String,
+    status: String,
+    pid: u32,
+    title: Option<String>,
+}
+
+/// Per-pane info for the multiplexer UI: process name (shell or agent) +
+/// agent status + OSC title.
+#[derive(Serialize)]
+pub struct PaneInfo {
+    terminal_id: u32,
+    /// Process name: agent name if an agent runs in this pane, else shell name
+    name: String,
+    /// "running" | "blocker" | "idle" (agent status; "running" for plain shell)
+    status: String,
+    pid: u32,
+    title: Option<String>,
 }
 
 /// Rules per agent — ported from herdr's bundled manifests (detect/manifests).
@@ -647,6 +660,59 @@ pub fn list_agents(state: State<PtyState>) -> Vec<AgentInfo> {
     agents
 }
 
+/// Info for every PTY session: process name (agent if detected, else shell
+/// basename), status, pid, OSC title. Used by pane titlebars in the mux UI.
+#[tauri::command]
+pub fn list_panes(state: State<PtyState>) -> Vec<PaneInfo> {
+    // Snapshot quickly (same lock discipline as list_agents — never hold the
+    // sessions lock during /proc scans, it stalls write_terminal).
+    let snapshots: Vec<(u32, Option<u32>, Option<String>, String, String, Option<Instant>)> = {
+        let sessions = state.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .map(|(id, session)| {
+                let osc = session.osc_title.lock().unwrap().clone();
+                let last = session.last_output.lock().unwrap().clone();
+                let status = session.status.lock().unwrap().clone();
+                let pending = *session.pending_idle.lock().unwrap();
+                (*id, session.shell_pid, osc, last, status, pending)
+            })
+            .collect()
+    };
+
+    let mut panes = Vec::new();
+    for (id, shell_pid, osc, last, mut cur, mut pending) in snapshots {
+        let Some(pid) = shell_pid else {
+            continue;
+        };
+        // default name: shell process basename
+        let (name, agent_pid) = match find_agent_process(pid) {
+            Some((ap, agent)) => (agent, ap),
+            None => (process_name(pid).unwrap_or_else(|| "shell".to_string()), pid),
+        };
+        let status = update_status(
+            &mut cur,
+            &mut pending,
+            Instant::now(),
+            &name,
+            osc.as_deref(),
+            &last,
+        );
+        if let Some(session) = state.sessions.lock().unwrap().get(&id) {
+            *session.status.lock().unwrap() = cur;
+            *session.pending_idle.lock().unwrap() = pending;
+        }
+        panes.push(PaneInfo {
+            terminal_id: id,
+            name,
+            status,
+            pid: agent_pid,
+            title: osc,
+        });
+    }
+    panes
+}
+
 /// Best-effort recursive scan: direct children of the shell first, then one
 /// level deeper (covers `bash -c "claude …"` wrappers).
 fn find_agent_process(shell_pid: u32) -> Option<(u32, String)> {
@@ -782,6 +848,29 @@ fn process_info(pid: u32) -> (String, Vec<String>) {
 #[cfg(not(target_os = "linux"))]
 fn get_child_processes(_shell_pid: u32) -> Vec<(u32, String, Vec<String>)> {
     Vec::new()
+}
+
+/// Process basename for a pid (shell name fallback for pane titlebars).
+fn process_name(pid: u32) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let (name, _) = process_info(pid);
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let out = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+            .ok()?;
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+    None
 }
 
 // Heuristic fallback for unknown agents: last output ends with an interactive
