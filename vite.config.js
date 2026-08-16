@@ -7,6 +7,11 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    // avoid EBUSY: Vite must not watch cargo's target/ output (dll locked
+    // while the Rust toolchain builds/locks it on Windows)
+    watch: {
+      ignored: ["**/src-tauri/target/**"],
+    },
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
