@@ -90,14 +90,26 @@
     };
   });
 
-  function minimize() {
-    appWindow?.minimize();
+  async function minimize() {
+    try {
+      await appWindow?.minimize();
+    } catch (e) {
+      toast(`minimize failed: ${e}`, "error");
+    }
   }
-  function toggleMaximize() {
-    appWindow?.toggleMaximize();
+  async function toggleMaximize() {
+    try {
+      await appWindow?.toggleMaximize();
+    } catch (e) {
+      toast(`maximize failed: ${e}`, "error");
+    }
   }
-  function closeApp() {
-    appWindow?.close();
+  async function closeApp() {
+    try {
+      await appWindow?.close();
+    } catch (e) {
+      toast(`close failed: ${e}`, "error");
+    }
   }
 
   // ---- agents polling ----
@@ -234,10 +246,6 @@
         <div class="brand">
           <img src="logo.png" alt="" class="logo pixel-canvas" />
           <span>{$t.brand}</span>
-        </div>
-      {:else}
-        <div class="brand-collapsed">
-          <img src="logo.png" alt="" class="logo pixel-canvas" />
         </div>
       {/if}
 
@@ -560,16 +568,10 @@
     border-bottom: 2px dashed var(--border);
     margin-bottom: 8px;
   }
-  .brand .logo,
-  .brand-collapsed .logo {
+  .brand .logo {
     width: 22px;
     height: 22px;
     image-rendering: pixelated;
-  }
-  .brand-collapsed {
-    display: flex;
-    justify-content: center;
-    padding: 6px 0 12px;
   }
 
   .nav-item {

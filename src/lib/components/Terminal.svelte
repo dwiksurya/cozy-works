@@ -278,7 +278,7 @@
         const backendId = tab.termBackend?.[pid] ?? (pid === firstPaneId(tab.root) ? tab.id : null);
         if (backendId == null) continue;
         let entry = tab.terms[pid];
-        if (!el.dataset.mounted && !entry) {
+        if (!entry) {
           const { term, fit } = createTerm();
           term.open(el);
           term.writeln("\x1b[36m~ cozy-works terminal\x1b[0m");
@@ -292,9 +292,21 @@
           });
           el.dataset.mounted = "1";
           if (tab.activePane === pid) setTimeout(() => term.focus(), 30);
-        } else if (entry) {
+        } else {
           entry.backendId = backendId;
+          // re-attach xterm to a freshly created DOM element (tab switch unmounts
+          // the element, so the xterm instance must be re-opened on the new node)
+          if (!el.dataset.mounted) {
+            try {
+              entry.term.open(el);
+              entry.fit.fit();
+              if (tab.activePane === pid) setTimeout(() => entry.term.focus(), 30);
+            } catch (e) {
+              /* ignore re-attach errors */
+            }
+          }
         }
+        el.dataset.mounted = "1";
         el.style.display = "block";
         if (tab.activePane === pid) {
           setTimeout(() => {
@@ -344,7 +356,11 @@
   async function refreshWorkspace(dir) {
     if (!isTauri()) return;
     const active = tabs.find((x) => x.id === activeTabId);
-    const cwd = dir || active?.label || "~";
+    // prefer explicit dir (from prompt parse), else full path (labelFull),
+    // else home. label alone is basename — git -C needs abs path.
+    let cwd = "~";
+    if (dir) cwd = dir;
+    else if (active?.labelFull && active.labelFull !== "~") cwd = active.labelFull;
     try {
       const r = await invoke("git_branch", { cwd });
       const ws = get(workspaceStatus);
@@ -376,7 +392,11 @@
           const entry = tab.terms[pid];
           if (entry) {
             entry.term.write(data);
-            if (tab.activePane === pid) parseOutput(tab, data);
+            // auto-scroll to bottom so output is always visible (only for active pane)
+            if (tab.activePane === pid) {
+              entry.term.scrollToBottom();
+              if (tab.activePane === pid) parseOutput(tab, data);
+            }
           }
         }
         if (loading) loading = false;
@@ -396,11 +416,15 @@
 
   // ---- pane info polling (process name + status for titlebars) ----
   let panesTimer = null;
+  let wsTimer = null;
   async function pollPanes() {
     if (!isTauri()) return;
     try {
       const list = await window.__TAURI_INTERNALS__.invoke("list_panes");
       panes.set(list);
+      // keep workspace status fresh even without prompt regex match
+      const active = tabs.find((x) => x.id === activeTabId);
+      if (active) refreshWorkspace();
     } catch (e) {
       /* backend not ready */
     }

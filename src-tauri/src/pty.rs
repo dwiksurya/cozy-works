@@ -54,7 +54,10 @@ pub fn init(app: AppHandle) {
 fn shell_command() -> CommandBuilder {
     #[cfg(windows)]
     {
-        CommandBuilder::new("powershell.exe")
+        let mut cb = CommandBuilder::new("powershell.exe");
+        // -NoLogo: suppress copyright banner; -NoExit: keep shell open
+        cb.arg("-NoLogo").arg("-NoExit");
+        cb
     }
     #[cfg(not(windows))]
     {
